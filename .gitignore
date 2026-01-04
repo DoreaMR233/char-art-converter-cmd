@@ -1,0 +1,20 @@
+# IDE directories and files
+.idea/
+
+# Python cache directories
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+
+# Trae AI configuration
+.trae/
+
+# Virtual environment directory
+.venv/
+
+# Only exclude __pycache__ directories under src, not the entire src directory
+src/__pycache__/
+src/configs/__pycache__/
+src/processors/__pycache__/
+src/enums/__pycache__/
+src/utils/__pycache__/

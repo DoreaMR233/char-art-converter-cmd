@@ -1,0 +1,12 @@
+better-ffmpeg-progress
+jsonpath
+pillow
+puremagic
+pillow_heif
+opencv-python
+numpy
+torch
+colorama
+tqdm
+fonttools
+psutil

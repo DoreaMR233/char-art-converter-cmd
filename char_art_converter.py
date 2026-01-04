@@ -130,14 +130,14 @@ def create_parser() -> argparse.ArgumentParser:
         '-d', '--density',
         choices=list(CHAR_DENSITY_CONFIG.keys()),
         default=DEFAULT_DENSITY,
-        help=f'字符密度级别 (默认: {DEFAULT_DENSITY})'
+        help=f'字符密度级别 (默认: {DEFAULT_DENSITY}，可选值: {", ".join(CHAR_DENSITY_CONFIG.keys())})'
     )
 
     parser.add_argument(
         '-c', '--color-mode',
         choices=COLOR_MODES,
         default=DEFAULT_COLOR_MODE,
-        help=f'颜色模式 (默认: {DEFAULT_COLOR_MODE})'
+        help=f'颜色模式 (默认: {DEFAULT_COLOR_MODE}，可选值: {", ".join(COLOR_MODES)})'
     )
 
     parser.add_argument(
@@ -146,7 +146,7 @@ def create_parser() -> argparse.ArgumentParser:
         type=int,
         metavar='[LIMIT_WIDTH,LIMIT_HEIGHT]',
         default=DEFAULT_LIMIT_SIZE,
-        help='限制字符画输出大小。不带参数时使用默认大小(字体大小或原图宽度的1/4,原图高度的1/6)，带两个参数时指定宽度和高度'
+        help='调整输入图片尺寸。不带参数时使用默认大小(若指定了字体大小则为其1/2，否则原图宽度的1/4和原图高度的1/6)，带两个参数时指定宽度和高度'
     )
 
     parser.add_argument(

@@ -1,0 +1,149 @@
+
+"""
+配置模块集合
+
+该模块包含字符画转换过程中使用的所有配置信息，将各种配置变量集中导出，
+方便其他模块使用。配置内容涵盖了消息、图像、通用、视频和音频等多个方面，
+提供了系统运行所需的各种参数和默认值。
+
+主要功能：
+- 消息配置：错误、成功、警告等各种消息模板
+- 图像配置：支持的图像格式、质量设置、动画参数等
+- 通用配置：字符密度、颜色模式、字体设置、日志配置等
+- 视频配置：支持的视频格式、编解码器、帧率、分辨率等
+- 音频配置：支持的音频格式、编解码器、采样率、通道数等
+
+依赖：
+- message_config: 消息配置模块
+- image_config: 图像配置模块
+- common_config: 通用配置模块
+- video_config: 视频配置模块
+- audio_config: 音频配置模块
+"""
+
+# Message configs
+from .message_config import (
+    ERROR_MESSAGES,
+    SUCCESS_MESSAGES,
+    WARNING_MESSAGES
+)
+
+# Image configs
+from .image_config import (
+    JPEG_EXTENSIONS,
+    PNG_EXTENSIONS,
+    GIF_EXTENSIONS,
+    WEBP_EXTENSIONS,
+    BMP_EXTENSIONS,
+    TIFF_EXTENSIONS,
+    HEIF_EXTENSIONS,
+    AVIF_EXTENSIONS,
+    APNG_EXTENSIONS,
+    SUPPORTED_IMAGE_FORMATS,
+    ANIMATED_FORMATS,
+    JPEG_QUALITY,
+    PNG_COMPRESSION,
+    WEBP_QUALITY,
+    TIFF_COMPRESSION,
+    GIF_LOOP_COUNT,
+    DEFAULT_GIF_DURATION,
+    WEBP_METHOD,
+    AVIF_QUALITY,
+    AVIF_METHOD,
+    APNG_COMPRESSION
+)
+
+# Common configs
+from .common_config import (
+    CHAR_DENSITY_CONFIG,
+    COLOR_MODES,
+    ALL_SUPPORTED_FORMATS,
+    DEFAULT_DENSITY,
+    DEFAULT_COLOR_MODE,
+    DEFAULT_LIMIT_SIZE,
+    DEFAULT_WITH_TEXT,
+    DEFAULT_WITH_IMAGE,
+    DEFAULT_FONT_SIZE,
+    DEFAULT_LOG_LEVEL,
+    LOG_FORMAT,
+    LOG_DATE_FORMAT,
+    ENABLE_GPU,
+    GPU_MEMORY_LIMIT
+)
+
+# Video configs
+from .video_config import (
+    MP4_EXTENSIONS,
+    MP4_CODEC_H264,
+    MP4_CODEC_H265,
+    MP4_CODEC_MPEG4,
+    MP4_DEFAULT_CODEC,
+    MP4_QUALITY,
+    AVI_EXTENSIONS,
+    AVI_CODEC_XVID,
+    AVI_CODEC_MJPG,
+    AVI_CODEC_DIVX,
+    AVI_DEFAULT_CODEC,
+    MOV_EXTENSIONS,
+    MOV_CODEC_PRORES,
+    MOV_CODEC_H264,
+    MOV_DEFAULT_CODEC,
+    MKV_EXTENSIONS,
+    MKV_CODEC_H264,
+    MKV_CODEC_H265,
+    MKV_DEFAULT_CODEC,
+    WEBM_EXTENSIONS,
+    WEBM_CODEC_VP8,
+    WEBM_CODEC_VP9,
+    WEBM_DEFAULT_CODEC,
+    FLV_EXTENSIONS,
+    FLV_CODEC_FLV1,
+    FLV_CODEC_H264,
+    FLV_DEFAULT_CODEC,
+    MPEG_EXTENSIONS,
+    MPEG_CODEC_MPEG1,
+    MPEG_CODEC_MPEG2,
+    MPEG_DEFAULT_CODEC,
+    WMV_EXTENSIONS,
+    WMV_CODEC_WMV1,
+    WMV_CODEC_WMV2,
+    WMV_CODEC_WMV3,
+    WMV_DEFAULT_CODEC,
+    DEFAULT_FPS,
+    DEFAULT_BITRATE,
+    DEFAULT_VIDEO_CODEC,
+    SUPPORTED_VIDEO_FORMATS,
+    EXTENSION_TO_CODEC,
+    DEFAULT_FRAME_EXTENSIONS
+)
+
+# Audio configs
+from .audio_config import (
+    AAC_EXTENSIONS,
+    AAC_CODEC,
+    MP3_EXTENSIONS,
+    MP3_CODEC,
+    WAV_EXTENSIONS,
+    WAV_CODEC_PCM,
+    WAV_CODEC_PCM_24,
+    WAV_CODEC_PCM_32,
+    WAV_DEFAULT_CODEC,
+    FLAC_EXTENSIONS,
+    FLAC_CODEC,
+    OGG_EXTENSIONS,
+    OGG_CODEC_VORBIS,
+    OGG_CODEC_OPUS,
+    OGG_DEFAULT_CODEC,
+    WMA_EXTENSIONS,
+    WMA_CODEC,
+    AIFF_EXTENSIONS,
+    AIFF_CODEC_PCM,
+    DEFAULT_SAMPLE_RATE,
+    DEFAULT_CHANNELS,
+    DEFAULT_BIT_RATE,
+    DEFAULT_BIT_RATE_STRING,
+    SUPPORTED_AUDIO_FORMATS,
+    CODEC_TO_EXTENSION,
+    DEFAULT_AUDIO_EXTENSION,
+    DEFAULT_AUDIO_CODEC
+)

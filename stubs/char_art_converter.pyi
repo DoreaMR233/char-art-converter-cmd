@@ -1,0 +1,9 @@
+import argparse
+from _typeshed import Incomplete
+
+logger: Incomplete
+exit_flag: bool
+
+def create_parser() -> argparse.ArgumentParser: ...
+def global_signal_handler(signum: int, frame: object) -> None: ...
+def main(args: argparse.Namespace | None = None) -> int: ...

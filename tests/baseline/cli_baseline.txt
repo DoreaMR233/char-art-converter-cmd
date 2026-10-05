@@ -1,0 +1,127 @@
+char-art-converter CLI baseline (P0)
+python=E:\Personal Documents\Codes\char-art-converter-cmd\.venv\Scripts\python.exe
+
+[help]
+cmd=--help
+rc=0
+usage_present=True
+
+[version]
+cmd=--version
+rc=0
+version_1.0.0_present=True
+
+[image_default]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png
+rc=0
+progress_present=True
+progress_100_present=True
+DEBUG_absent=True
+
+[image_density_low_grayscale]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png -d low -c grayscale -t
+rc=0
+progress_present=True
+progress_100_present=True
+DEBUG_absent=True
+
+[image_density_low_color_background]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png -d low -c colorBackground -t
+rc=0
+progress_present=True
+progress_100_present=True
+DEBUG_absent=True
+
+[image_density_medium_color]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png -d medium -c color -t
+rc=0
+progress_present=True
+progress_100_present=True
+DEBUG_absent=True
+
+[image_density_high_grayscale]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png -d high -c grayscale -t
+rc=0
+progress_present=True
+progress_100_present=True
+DEBUG_absent=True
+
+[image_density_high_color_background]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png -d high -c colorBackground -t
+rc=0
+progress_present=True
+progress_100_present=True
+DEBUG_absent=True
+
+[image_no_multithread]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png --no-multithread
+rc=0
+progress_present=True
+progress_100_present=True
+DEBUG_absent=True
+
+[image_limit_size_32x24]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png -l 32 24
+rc=0
+progress_present=True
+progress_100_present=True
+DEBUG_absent=True
+
+[gif_animated]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.gif
+rc=0
+progress_present=True
+progress_100_present=True
+DEBUG_absent=True
+
+[video_convert]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.avi
+rc=0
+progress_present=True
+progress_100_present=True
+frame_count_msg_present=True
+DEBUG_absent=True
+
+[video_with_text]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.avi -t
+rc=0
+progress_present=True
+progress_100_present=True
+frame_count_msg_present=True
+DEBUG_absent=True
+
+[error_nonexistent]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\missing.png
+rc=2
+error_text_present=文件
+
+[error_unsupported_pdf]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\unsupported.pdf
+rc=1
+error_text_present=文件
+error_text_present=不支持
+error_text_present=.pdf
+
+[error_limit_size_single]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png -l 32
+rc=1
+error_text_present=--limit-size
+
+[error_limit_size_zero]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png -l 0 10
+rc=1
+error_text_present=宽度和高度必须大于0
+
+[error_output_is_file]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png -o E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\blocker.txt
+rc=1
+error_text_present=文件
+error_text_present=目录
+
+[image_debug]
+cmd=E:\Personal Documents\Codes\char-art-converter-cmd\build\baseline_work\test_input.png --debug
+rc=0
+progress_present=True
+progress_100_present=True
+DEBUG_present=True
+INFO_present=True

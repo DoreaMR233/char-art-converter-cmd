@@ -161,7 +161,10 @@ class VideoProcessor(BasedProcessor):
 
         logger.info(f"GPU加速: {'启用' if self.enable_gpu else '禁用'}")
         if self.enable_gpu and self.gpu_memory_limit:
-            logger.info(f"GPU内存限制: {self.gpu_memory_limit}MB")
+            if self.gpu_memory_limit > 1.0:
+                logger.info(f"GPU内存限制: {self.gpu_memory_limit:.0f}MB")
+            else:
+                logger.info(f"GPU内存限制: {self.gpu_memory_limit*100:.0f}%")
 
         self.process_video()
 

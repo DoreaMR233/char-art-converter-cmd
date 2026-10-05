@@ -41,6 +41,70 @@ from .format_utils import format_size, format_speed
 # 初始化日志器
 logger = logging.getLogger(__name__)
 
+# 进度汇：GUI 模式下把进度重定向为回调事件（CLI 模式下为 None，行为不变）
+# 回调签名：(done:int, total:int, description:str, extra:str) -> None
+_progress_sink: Optional[Callable[[int, int, str, str], None]] = None
+
+def set_progress_sink(sink: Optional[Callable[[int, int, str, str], None]]) -> None:
+    """设置进度汇。None 恢复默认 tqdm 行为（CLI）。"""
+    global _progress_sink
+    _progress_sink = sink
+
+def get_progress_sink() -> Optional[Callable[[int, int, str, str], None]]:
+    """返回当前进度汇回调（无则为 None）。"""
+    return _progress_sink
+
+
+class _SinkProgressBar:
+    """tqdm 的鸭子类型替身，仅实现调用方实际使用的接口。"""
+
+    def __init__(self, total: int, description: str, unit: str = 'it'):
+        self.total = total
+        self.n = 0
+        self.description = description
+        self.unit = unit
+
+    def update(self, n: int = 1) -> None:
+        self.n += n
+        self._emit('')
+
+    def set_postfix_str(self, extra: str = '') -> None:
+        self._emit(extra)
+
+    def set_description(self, description: str) -> None:
+        # 调用方（video_processor/char_art_utils）会动态修改阶段描述
+        self.description = description
+        self._emit('')
+
+    def _emit(self, extra: str) -> None:
+        if _progress_sink is not None:
+            _progress_sink(self.n, self.total, self.description, extra)
+
+    def refresh(self) -> None:      # 防御性兼容
+        pass
+
+    def close(self) -> None:
+        pass
+
+    def __enter__(self):
+        self._emit('')
+        return self
+
+    def __exit__(self, *exc) -> None:
+        pass
+
+
+def _make_progress(total: int, description: str, unit: str = 'it', **kwargs):
+    """有 sink 时返回替身对象，否则返回原 tqdm 对象（CLI 行为不变）。"""
+    if _progress_sink is not None:
+        return _SinkProgressBar(total, description, unit)
+    from tqdm import tqdm as tqdm_func
+    tqdm_kwargs = get_tqdm_kwargs(total, description, kwargs.get('verbose', True), unit, kwargs.get('position', 0))
+    if kwargs.get('hide_counter'):
+        tqdm_kwargs['bar_format'] = '{desc} {percentage:3.0f}%|{bar}| {postfix}'
+    return tqdm_func(**tqdm_kwargs)
+
+
 def get_tqdm_kwargs(total: int, desc: str, verbose: bool = True, unit: str = 'it', position: int = 0) -> Dict[str, Any]:
     """
     获取tqdm进度条配置参数
@@ -108,6 +172,12 @@ def show_value_file_save_progress(file_path: Path, save_completed: threading.Eve
     返回:
         None
     """
+    # 进度汇模式：只发一次阶段事件，跳过tqdm动画
+    if _progress_sink is not None:
+        _progress_sink(0, 1, description, '')
+        save_completed.set()
+        return
+
     # 如果不显示进度条，直接等待完成
     if not verbose:
         save_completed.wait()
@@ -292,18 +362,8 @@ def show_project_status_progress(total: int, description: str, verbose: bool = T
             tqdm进度条对象，可用于在调用处更新进度
     """
 
-    # 获取基本tqdm配置
-    tqdm_kwargs = get_tqdm_kwargs(total, description, verbose, unit, position)
-    
-    # 如果需要隐藏计数器，使用特殊的bar_format
-    if hide_counter:
-        tqdm_kwargs['bar_format'] = '{desc} {percentage:3.0f}%|{bar}| {postfix}'
-    
-    # 直接从tqdm模块导入，避免变量名冲突
-    from tqdm import tqdm as tqdm_func
-    
-    # 返回tqdm进度条对象，以便在调用处控制更新
-    return tqdm_func(**tqdm_kwargs)
+    # 有进度汇时返回鸭子替身，否则返回原 tqdm 进度条（CLI 行为不变）
+    return _make_progress(total, description, unit, verbose=verbose, position=position, hide_counter=hide_counter)
 
 def no_value_file_save_progress(file_path: Path, save_completed: threading.Event, description: str, verbose: bool, position: int = 0, should_stop: Optional[Callable[[], bool]] = None) -> None:
     """
@@ -328,6 +388,12 @@ def no_value_file_save_progress(file_path: Path, save_completed: threading.Event
     返回:
         None
     """
+    # 进度汇模式：只发一次阶段事件，跳过动画线程
+    if _progress_sink is not None:
+        _progress_sink(0, 1, description, '')
+        save_completed.set()
+        return
+
     # 如果不显示进度条，直接等待完成
     if not verbose:
         save_completed.wait()

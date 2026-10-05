@@ -144,7 +144,10 @@ class BasedProcessor:
             self.should_stop = True
         
         # 首先注册信号处理器，确保在导入任何可能阻塞的库之前
-        signal.signal(signal.SIGINT, self.signal_handler)
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGINT, self.signal_handler)
+        else:
+            logger.debug("非主线程运行，跳过SIGINT注册（由上层负责取消）")
         
         # 验证参数
         validate_arguments(args)

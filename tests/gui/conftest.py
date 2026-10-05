@@ -1,0 +1,31 @@
+"""tests/gui 专用 fixtures。
+
+关键决策（供后续维护者参考）：GUI worker 在 QThread 内运行，会经
+based_processor.__init__ 调 check_ffmpeg_available() → subprocess.run()。
+CPython 3.12 Windows 下，QThread 与预览线程（fontTools 打开字体文件）并发创建
+句柄时，subprocess._get_handles 存在竞态，实测触发
+"Fatal Python error: Aborted"（subprocess.py:1395 _get_handles）导致整个 pytest
+进程崩溃（full_run1 于 test_image_conversion_success 崩溃）。
+ffmpeg 可用性已由 session 级 ffmpeg_available 夹具在主线程串行验证一次，
+GUI 用例聚焦 UI 状态机，因此在此屏蔽 worker 内的重复探测。
+"""
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _no_ffmpeg_subprocess_in_worker(monkeypatch):
+    import src.processors.based_processor as based_processor
+
+    monkeypatch.setattr(based_processor, "check_ffmpeg_available", lambda: None)
+
+
+@pytest.fixture
+def wait_preview_idle(qt_wait):
+    """等待 PreviewPane 后台线程结束，避免其与转换 worker 的 subprocess 并发。"""
+    def _wait(window, timeout=15.0):
+        def _idle():
+            worker = window.preview_pane._worker
+            return worker is None or not worker.isRunning()
+        return qt_wait(_idle, timeout=timeout)
+
+    return _wait

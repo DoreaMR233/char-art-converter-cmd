@@ -120,7 +120,7 @@ def setup_gpu_memory_limit(torch: Optional[Any], torch_cuda_available: bool,
     Args:
         torch: Optional[Any] PyTorch模块对象
         torch_cuda_available: bool 布尔值，表示CUDA是否可用
-        gpu_memory_limit: Optional[float] 可选的GPU内存使用限制（0.0-1.0之间的浮点数，表示百分比）
+        gpu_memory_limit: Optional[float] 可选的GPU内存使用限制（0.0-1.0 为占比；>1.0 视为 MB）
     """
     # 设置GPU内存限制和优化
     if torch is not None and torch_cuda_available:
@@ -130,13 +130,20 @@ def setup_gpu_memory_limit(torch: Optional[Any], torch_cuda_available: bool,
             total_memory = torch.cuda.get_device_properties(device).total_memory
             
             if gpu_memory_limit is not None:
-                # 使用用户指定的内存限制（百分比）
-                memory_limit = total_memory * gpu_memory_limit
-                logger.info(f"使用用户指定的GPU内存限制: {gpu_memory_limit*100:.0f}%")
+                if gpu_memory_limit > 1.0:
+                    # MB 语义（CLI --gpu-memory-limit），换算为占比
+                    memory_limit = min(int(gpu_memory_limit * 1024**2), int(total_memory * 0.9))
+                    memory_fraction = memory_limit / total_memory
+                    logger.info(f"使用用户指定的GPU内存限制: {gpu_memory_limit:.0f}MB ({memory_fraction*100:.0f}%)")
+                else:
+                    # 占比语义（GUI 传占比 / 配置默认 0.8）
+                    memory_limit = int(total_memory * gpu_memory_limit)
+                    memory_fraction = gpu_memory_limit
+                    logger.info(f"使用用户指定的GPU内存限制: {gpu_memory_limit*100:.0f}%")
             else:
                 # 使用配置文件中的默认限制
-                
                 memory_limit = int(total_memory * GPU_MEMORY_LIMIT)
+                memory_fraction = GPU_MEMORY_LIMIT
                 logger.info(f"使用默认GPU内存限制: {GPU_MEMORY_LIMIT*100:.0f}%")
             
             # 确保内存限制不超过可用内存的90%
@@ -147,7 +154,6 @@ def setup_gpu_memory_limit(torch: Optional[Any], torch_cuda_available: bool,
                 # 尝试使用PyTorch的内存管理API
                 if hasattr(torch.cuda, 'memory') and hasattr(torch.cuda.memory, 'CUDAPoolAllocator'):
                     # 对于较新版本的PyTorch
-                    memory_fraction = gpu_memory_limit if gpu_memory_limit is not None else 0.8  # 默认使用80%
                     torch.cuda.memory.set_per_process_memory_fraction(memory_fraction)
                     logger.info(f"GPU内存限制设置为: {safe_memory_limit / 1024**3:.1f}GB (总可用: {total_memory / 1024**3:.1f}GB)")
                 else:

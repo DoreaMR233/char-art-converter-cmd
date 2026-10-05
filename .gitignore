@@ -18,3 +18,13 @@ src/configs/__pycache__/
 src/processors/__pycache__/
 src/enums/__pycache__/
 src/utils/__pycache__/
+# PyInstaller build artifacts
+build/
+dist/
+
+# Test temp output dirs (tempfile.mkdtemp residues)
+char_art_*/
+pytest-of-*/
+
+# Debug scratch scripts
+.scratch_*

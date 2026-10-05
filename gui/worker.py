@@ -30,9 +30,10 @@ PREWARM_DESCRIPTION = "正在初始化 GPU 环境（首次运行可能较慢）�
 class ConversionWorker(QThread):
     """转换任务线程。构造一次运行一次，不可复用。"""
 
-    progress = Signal(int, int, str, str)   # done, total, description, extra
-    finished_ok = Signal(int, dict)         # exit_code, payload(产物路径/错误信息)
-    log_ready = Signal()                    # setup_logging 完成后通知主线程挂 GUI Handler
+    progress = Signal(int, int, str, str, int)   # done, total, description, extra, position
+    thread_count = Signal(int)                   # GIF/视频多线程帧处理的线程数（CLI 语义）
+    finished_ok = Signal(int, dict)              # exit_code, payload(产物路径/错误信息)
+    log_ready = Signal()                         # setup_logging 完成后通知主线程挂 GUI Handler
 
     def __init__(self, ns: Namespace, parent=None):
         super().__init__(parent)
@@ -45,7 +46,7 @@ class ConversionWorker(QThread):
         self.log_ready.emit()
 
         # C5：构造处理器（含 torch 首次加载）前给出预热提示
-        self.progress.emit(0, 0, PREWARM_DESCRIPTION, "")
+        self.progress.emit(0, 0, PREWARM_DESCRIPTION, "", 0)
 
         try:
             file_type = FileType.from_path(Path(self.ns.input))
@@ -58,6 +59,11 @@ class ConversionWorker(QThread):
                 raise ValueError(ERROR_MESSAGES['unsupported_format'].format(
                     Path(self.ns.input).suffix or Path(self.ns.input).name,
                     ""))
+            # GIF/视频才走多线程帧处理：主条(position 0) + 每线程一条(position 1..N)
+            if file_type == FileType.VIDEO or (
+                file_type == FileType.IMAGE and getattr(self._processor, 'is_animated', False)
+            ):
+                self.thread_count.emit(self._processor.max_workers)
             self._processor.start()
             self.finished_ok.emit(0, self._collect_outputs())
         except KeyboardInterrupt:

@@ -66,3 +66,46 @@ def test_progress_display(window):
     # (0,0) 忙碌指示器，Qt6 下 value() 为 -1
     assert window.progress_bar.value() in (-1, 0)
     assert window.stage_label.text() == "统计视频帧数"
+
+
+def test_thread_bars_routing(window):
+    """T-303b：GIF/视频任务的每线程进度条——按线程数建条、position 分流、清理。"""
+    # 初始无线程条
+    assert window._thread_bars == []
+    assert not window.thread_bars_container.isVisible()
+
+    # 模拟 worker 报告 3 线程
+    window._on_thread_count(3)
+    assert len(window._thread_bars) == 3
+    assert window.thread_bars_container.isVisible()
+    for bar in window._thread_bars:
+        assert bar.objectName() == "threadBar"
+        assert bar.maximum() == 0   # 初始不确定
+
+    # position>0 → 线程条；主条不受影响
+    window._on_progress(5, 10, "帧 1 GPU生成", "", 1)
+    assert window._thread_bars[0].maximum() == 10
+    assert window._thread_bars[0].value() == 5
+    assert window.progress_bar.maximum() == 0
+    assert window.stage_label.text() == "就绪"
+
+    # 线程条自身的不确定进度
+    window._on_progress(1, 0, "帧 2 GPU生成", "", 2)
+    assert window._thread_bars[1].maximum() == 0
+
+    # position 0 → 主条 + 阶段文案
+    window._on_progress(5, 10, "统计视频帧数", "", 0)
+    assert window.progress_bar.maximum() == 10
+    assert window.progress_bar.value() == 5
+    assert window.stage_label.text() == "统计视频帧数"
+
+    # 越界 position 不影响任何条
+    window._on_progress(1, 10, "帧 9 GPU生成", "", 9)
+    for bar in window._thread_bars:
+        assert bar.maximum() in (0, 10)
+    assert window.progress_bar.maximum() == 10
+
+    # 任务结束清理
+    window._clear_thread_bars()
+    assert window._thread_bars == []
+    assert not window.thread_bars_container.isVisible()

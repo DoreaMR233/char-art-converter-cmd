@@ -5,6 +5,7 @@ cancel 为纯 Python 方法，直接以未绑定方式调用，避免为标志�
 from types import SimpleNamespace
 
 from gui.worker import ConversionWorker
+from src.processors.based_processor import BasedProcessor, DummyFlag
 
 
 def test_cancel_sets_should_stop_and_plain_flag():
@@ -28,3 +29,24 @@ def test_cancel_sets_flag_value_attr():
 
     assert processor.should_stop is True
     assert flag.value is True
+
+
+def test_dummy_flag_is_falsy_and_toggleable():
+    """GUI 无 exit_flag 时的 DummyFlag 默认为假、可置真，布尔语义正确。"""
+    flag = DummyFlag()
+    assert flag.value is False
+    assert bool(flag) is False
+    flag.value = True
+    assert bool(flag) is True
+
+
+def test_stop_requested_helper_reads_value_based_flags():
+    """_stop_requested：should_stop 优先，其次 flag.value，最后对象布尔值。"""
+    def call(fake):
+        return BasedProcessor._stop_requested(fake)
+
+    assert call(SimpleNamespace(should_stop=False, global_exit_flag=DummyFlag())) is False
+    assert call(SimpleNamespace(should_stop=False, global_exit_flag=SimpleNamespace(value=True))) is True
+    assert call(SimpleNamespace(should_stop=False, global_exit_flag=True)) is True
+    assert call(SimpleNamespace(should_stop=False, global_exit_flag=False)) is False
+    assert call(SimpleNamespace(should_stop=True, global_exit_flag=DummyFlag())) is True

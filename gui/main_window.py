@@ -7,6 +7,7 @@ import subprocess
 from argparse import Namespace
 from enum import Enum, auto
 from pathlib import Path
+from typing import List
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -82,6 +83,15 @@ class MainWindow(QMainWindow):
         self.progress_bar.setFixedHeight(8)
         self.progress_bar.setObjectName("progressBar")
 
+        # GIF/视频转换时的每线程进度条（position 1..N，与 CLI 主条+线程条布局一致）
+        self.thread_bars_container = QWidget()
+        self.thread_bars_layout = QVBoxLayout(self.thread_bars_container)
+        self.thread_bars_layout.setContentsMargins(0, 0, 0, 0)
+        self.thread_bars_layout.setSpacing(2)
+        self.thread_bars_container.setVisible(False)
+        self._thread_bars: List[QProgressBar] = []
+        self._thread_count = 0
+
         self.status_label = QLabel("")
         self.status_label.setObjectName("statusLabel")
         self.status_label.setWordWrap(True)
@@ -120,6 +130,7 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(self.cancel_btn)
         btn_row.addWidget(self.start_btn)
         bottom_layout.addLayout(progress_row)
+        bottom_layout.addWidget(self.thread_bars_container)
         bottom_layout.addWidget(self.status_label)
         bottom_layout.addLayout(btn_row)
         bottom_layout.addWidget(self.log_drawer)
@@ -246,6 +257,7 @@ class MainWindow(QMainWindow):
         self._set_state(AppState.PREPARING)
         self.stage_label.setText(PREWARM_DESCRIPTION)
         self.progress_bar.setRange(0, 0)
+        self._clear_thread_bars()
         self.status_label.setText("正在准备转换任务…")
         self.open_folder_btn.setVisible(False)
         self.input_error.setVisible(False)
@@ -254,6 +266,7 @@ class MainWindow(QMainWindow):
         self.bridge.attach()
         self._worker = ConversionWorker(self._build_namespace())
         self._worker.progress.connect(self.bridge.progress)
+        self._worker.thread_count.connect(self._on_thread_count)
         self._worker.finished_ok.connect(self._on_finished)
         self._worker.log_ready.connect(self._on_log_ready)
         self._worker.start()
@@ -270,7 +283,20 @@ class MainWindow(QMainWindow):
         if self.param_panel.values()["debug"]:
             self.log_drawer.expand(True)
 
-    def _on_progress(self, done: int, total: int, description: str, extra: str) -> None:
+    def _on_progress(self, done: int, total: int, description: str, extra: str, position: int = 0) -> None:
+        if position > 0:
+            # 线程条（position 1..N）：与 CLI 每线程一条对齐，tooltip 显示当前活动
+            index = position - 1
+            if 0 <= index < len(self._thread_bars):
+                bar = self._thread_bars[index]
+                if total <= 0:
+                    bar.setRange(0, 0)
+                else:
+                    bar.setRange(0, total)
+                    bar.setValue(min(done, total))
+                bar.setToolTip(f"{description} {extra}".strip() if extra else description)
+            return
+        # 主条（position 0）：总体进度与阶段文案
         if total <= 0:
             self.progress_bar.setRange(0, 0)
         else:
@@ -279,9 +305,35 @@ class MainWindow(QMainWindow):
         title = phase_title(description)
         self.stage_label.setText(f"{title} {extra}".strip() if extra else title)
 
+    def _on_thread_count(self, count: int) -> None:
+        """GIF/视频任务开始时，按最大线程数重建线程进度条。"""
+        self._clear_thread_bars()
+        if count <= 0:
+            return
+        self._thread_count = count
+        for _ in range(count):
+            bar = QProgressBar()
+            bar.setRange(0, 0)
+            bar.setTextVisible(False)
+            bar.setFixedHeight(6)
+            bar.setObjectName("threadBar")
+            self.thread_bars_layout.addWidget(bar)
+            self._thread_bars.append(bar)
+        self.thread_bars_container.setVisible(True)
+
+    def _clear_thread_bars(self) -> None:
+        """移除全部线程条并隐藏容器（任务开始/结束/取消时调用）。"""
+        for bar in self._thread_bars:
+            self.thread_bars_layout.removeWidget(bar)
+            bar.deleteLater()
+        self._thread_bars = []
+        self._thread_count = 0
+        self.thread_bars_container.setVisible(False)
+
     def _on_finished(self, code: int, payload: dict) -> None:
         self.bridge.flush()
         self.bridge.detach()
+        self._clear_thread_bars()
         worker, self._worker = self._worker, None
         if worker is not None:
             worker.deleteLater()

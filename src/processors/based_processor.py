@@ -53,6 +53,19 @@ from ..utils.file_utils import save_file
 
 logger = logging.getLogger(__name__)
 
+
+class DummyFlag:
+    """
+    虚拟标志类，用于在没有提供全局exit_flag时作为默认替代
+    """
+
+    def __init__(self) -> None:
+        self.value = False
+
+    def __bool__(self) -> bool:
+        return bool(self.value)
+
+
 class BasedProcessor:
     """
     基础处理器类，提供图像和视频处理器的共同功能
@@ -105,15 +118,6 @@ class BasedProcessor:
         validate_arguments(args)
         # 检查FFmpeg是否可用
         check_ffmpeg_available()
-        
-        # 定义虚拟标志类，用于在没有提供全局exit_flag时作为默认替代
-        class DummyFlag:
-            """
-            虚拟标志类，用于在没有提供全局exit_flag时作为默认替代
-            Args:
-                value : bool 标志值，默认为False，表示程序运行状态
-            """
-            value = False
         
         # 尝试从builtins获取全局exit_flag
         try:
@@ -316,6 +320,22 @@ class BasedProcessor:
         """
         return self.should_stop
 
+    def _stop_requested(self) -> bool:
+        """
+        综合 should_stop 与 global_exit_flag 判断是否应停止处理
+
+        global_exit_flag 可能是任意对象（bool / multiprocessing.Value / DummyFlag），
+        统一按 .value（若有）或对象布尔值读取。
+        """
+        if self.should_stop:
+            return True
+        flag = getattr(self, 'global_exit_flag', None)
+        if flag is None:
+            return False
+        if hasattr(flag, 'value'):
+            return bool(flag.value)
+        return bool(flag)
+
     def process_single_frame(self, is_multithread: bool, frame_index: int, image: Image.Image, save_mode: SaveModes,text_frame_path: Path,image_frame_path: Path,duration: int = 0) -> Tuple[int, int]:
         """
         处理单帧图像并转换为字符画
@@ -381,7 +401,7 @@ class BasedProcessor:
             List[int]: 持续时间列表
         """
         # 检查是否需要立即停止（包括全局exit_flag）
-        if self.should_stop or hasattr(self, 'global_exit_flag') and self.global_exit_flag:
+        if self._stop_requested():
             logger.info("检测到中断标志，停止处理")
             return []
             
@@ -397,14 +417,14 @@ class BasedProcessor:
                 # 提交任务和收集结果的合并逻辑
                 while frame_index < total_frames or futures:
                     # 检查全局exit_flag
-                    if hasattr(self, 'global_exit_flag') and self.global_exit_flag:
+                    if self._stop_requested():
                         self.should_stop = True
                         break
                         
                     # 提交任务直到达到最大线程数或所有任务都已提交
                     while frame_index < total_frames and len(futures) < self.max_workers:
                         # 检查是否需要停止处理
-                        if self.should_stop or (hasattr(self, 'global_exit_flag') and self.global_exit_flag):
+                        if self._stop_requested():
                             self.should_stop = True
                             break
                         color_mode_value = self.color_mode.value if isinstance(self.color_mode,Enum) else self.color_mode
@@ -423,7 +443,7 @@ class BasedProcessor:
                         futures = not_done
                         
                         # 检查全局exit_flag
-                        if hasattr(self, 'global_exit_flag') and self.global_exit_flag:
+                        if self._stop_requested():
                             self.should_stop = True
                         
                         # 处理已完成的任务
@@ -470,7 +490,7 @@ class BasedProcessor:
             List[int]: 持续时间列表
         """
         # 检查是否需要立即停止（包括全局exit_flag）
-        if self.should_stop or hasattr(self, 'global_exit_flag') and self.global_exit_flag:
+        if self._stop_requested():
             logger.info("检测到中断标志，停止处理")
             return []
             
@@ -482,7 +502,7 @@ class BasedProcessor:
                 pbar.set_postfix_str(f"处理帧 {frame_index}")
                 
                 # 检查是否需要停止处理（包括全局exit_flag）
-                if self.should_stop or (hasattr(self, 'global_exit_flag') and self.global_exit_flag):
+                if self._stop_requested():
                     self.should_stop = True
                     logger.info("检测到中断标志，停止处理")
                     break
@@ -531,7 +551,7 @@ class BasedProcessor:
                 total_size += file_path.stat().st_size
         
         # 检查是否需要停止处理（包括全局exit_flag）
-        if self.should_stop or (hasattr(self, 'global_exit_flag') and self.global_exit_flag):
+        if self._stop_requested():
             self.should_stop = True
             logger.info("检测到中断标志，停止处理")
             return []
@@ -540,7 +560,7 @@ class BasedProcessor:
             # 按照帧编号顺序读取文件
             for frame_index in sorted(load_paths.keys()):
                 # 检查是否需要停止处理（包括全局exit_flag）
-                if self.should_stop or (hasattr(self, 'global_exit_flag') and self.global_exit_flag):
+                if self._stop_requested():
                     self.should_stop = True
                     logger.info("检测到中断标志，停止处理")
                     break

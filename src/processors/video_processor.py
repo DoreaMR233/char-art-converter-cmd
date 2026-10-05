@@ -197,7 +197,7 @@ class VideoProcessor(BasedProcessor):
             frame_count = 0
             # 先尝试获取视频总帧数进行估算
             estimated_frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            if self.should_stop:
+            if self._stop_requested():
                 raise KeyboardInterrupt(ERROR_MESSAGES['processing_interrupted'])
             with show_project_status_progress(estimated_frame_count+1, description="获取视频信息：", verbose=True, position=0,hide_counter=False) as pbar:
                 pbar.set_description("统计视频帧数")
@@ -333,14 +333,17 @@ class VideoProcessor(BasedProcessor):
             
             # 关闭视频文件
             cap.release()
-            if self.should_stop:
+            if self._stop_requested():
                 raise KeyboardInterrupt(ERROR_MESSAGES['processing_interrupted'])
             logger.info("将字符画视频帧合称为视频文件")
 
+            if not self.temp_frame_paths:
+                raise ValueError(ERROR_MESSAGES['no_frames_processed'])
             frame_paths = []  # 从字典值中按照顺序提取路径列表
             for temp_frame_index in sorted(self.temp_frame_paths.keys()):
                 frame_paths.append(self.temp_frame_paths[temp_frame_index])
-            with Image.open(self.temp_frame_paths[1]) as temp_image:
+            first_frame_index = min(self.temp_frame_paths.keys())
+            with Image.open(self.temp_frame_paths[first_frame_index]) as temp_image:
                 logger.info(f"字符画图像尺寸: {temp_image.width}x{temp_image.height}")
                 create_video(frame_paths, self.audio_path, self.video_path, self.temp_audio_dir, self.video_info, fps,
                          codec_name, bit_rate, self.max_workers,should_stop=self.should_stop_callback)

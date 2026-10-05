@@ -24,7 +24,7 @@ def test_set_get_progress_sink():
 
 
 def test_sink_progress_bar_bridges_events():
-    """T-104：_SinkProgressBar 将 update/set_postfix_str/set_description 桥接为 (done,total,desc,extra)。"""
+    """T-104：_SinkProgressBar 将 update/set_postfix_str/set_description 桥接为 (done,total,desc,extra,position)。"""
     events = []
     pbu.set_progress_sink(lambda *args: events.append(args))
 
@@ -38,12 +38,23 @@ def test_sink_progress_bar_bridges_events():
     bar.close()
 
     assert events == [
-        (3, 10, "处理帧", ""),
-        (4, 10, "处理帧", ""),
-        (4, 10, "处理帧", "帧 5/10"),
-        (4, 10, "处理视频帧", ""),
-        (4, 10, "处理视频帧", ""),
+        (3, 10, "处理帧", "", 0),
+        (4, 10, "处理帧", "", 0),
+        (4, 10, "处理帧", "帧 5/10", 0),
+        (4, 10, "处理视频帧", "", 0),
+        (4, 10, "处理视频帧", "", 0),
     ]
+
+
+def test_sink_progress_bar_carries_position():
+    """T-104b：_SinkProgressBar 的 position 贯穿到 sink 事件（每线程一条的依据）。"""
+    events = []
+    pbu.set_progress_sink(lambda *args: events.append(args))
+
+    bar = pbu._SinkProgressBar(10, "帧 3 GPU生成", position=3)
+    bar.update(2)
+
+    assert events == [(2, 10, "帧 3 GPU生成", "", 3)]
 
 
 def test_make_progress_returns_sink_or_tqdm():
@@ -60,7 +71,7 @@ def test_make_progress_returns_sink_or_tqdm():
 
 
 def test_save_progress_short_circuits_with_sink():
-    """T-106：show_value_file_save_progress 有 sink 时回传 (0,1,desc,'') 并置位 save_completed。"""
+    """T-106：show_value_file_save_progress 有 sink 时回传 (0,1,desc,'',0) 并置位 save_completed。"""
     events = []
     pbu.set_progress_sink(lambda *args: events.append(args))
     save_completed = threading.Event()
@@ -68,7 +79,7 @@ def test_save_progress_short_circuits_with_sink():
     pbu.show_value_file_save_progress("dummy.txt", save_completed, "保存", True)
 
     assert save_completed.is_set()
-    assert events == [(0, 1, "保存", "")]
+    assert events == [(0, 1, "保存", "", 0)]
 
 
 def test_project_status_progress_uses_make_progress():
@@ -79,4 +90,14 @@ def test_project_status_progress_uses_make_progress():
     bar = pbu.show_project_status_progress(7, "统计视频帧数")
     assert isinstance(bar, pbu._SinkProgressBar)
     bar.update(1)
-    assert events == [(1, 7, "统计视频帧数", "")]
+    assert events == [(1, 7, "统计视频帧数", "", 0)]
+
+
+def test_project_status_progress_forwards_position():
+    """T-107b：show_project_status_progress 的 position 参数进入 sink 事件。"""
+    events = []
+    pbu.set_progress_sink(lambda *args: events.append(args))
+
+    bar = pbu.show_project_status_progress(5, "保存帧2字符画到临时文件夹", position=2)
+    bar.update(1)
+    assert events == [(1, 5, "保存帧2字符画到临时文件夹", "", 2)]

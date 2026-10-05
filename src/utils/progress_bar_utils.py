@@ -42,15 +42,15 @@ from .format_utils import format_size, format_speed
 logger = logging.getLogger(__name__)
 
 # 进度汇：GUI 模式下把进度重定向为回调事件（CLI 模式下为 None，行为不变）
-# 回调签名：(done:int, total:int, description:str, extra:str) -> None
-_progress_sink: Optional[Callable[[int, int, str, str], None]] = None
+# 回调签名：(done:int, total:int, description:str, extra:str, position:int) -> None
+_progress_sink: Optional[Callable[[int, int, str, str, int], None]] = None
 
-def set_progress_sink(sink: Optional[Callable[[int, int, str, str], None]]) -> None:
+def set_progress_sink(sink: Optional[Callable[[int, int, str, str, int], None]]) -> None:
     """设置进度汇。None 恢复默认 tqdm 行为（CLI）。"""
     global _progress_sink
     _progress_sink = sink
 
-def get_progress_sink() -> Optional[Callable[[int, int, str, str], None]]:
+def get_progress_sink() -> Optional[Callable[[int, int, str, str, int], None]]:
     """返回当前进度汇回调（无则为 None）。"""
     return _progress_sink
 
@@ -58,11 +58,12 @@ def get_progress_sink() -> Optional[Callable[[int, int, str, str], None]]:
 class _SinkProgressBar:
     """tqdm 的鸭子类型替身，仅实现调用方实际使用的接口。"""
 
-    def __init__(self, total: int, description: str, unit: str = 'it'):
+    def __init__(self, total: int, description: str, unit: str = 'it', position: int = 0):
         self.total = total
         self.n = 0
         self.description = description
         self.unit = unit
+        self.position = position
 
     def update(self, n: int = 1) -> None:
         self.n += n
@@ -78,7 +79,7 @@ class _SinkProgressBar:
 
     def _emit(self, extra: str) -> None:
         if _progress_sink is not None:
-            _progress_sink(self.n, self.total, self.description, extra)
+            _progress_sink(self.n, self.total, self.description, extra, self.position)
 
     def refresh(self) -> None:      # 防御性兼容
         pass
@@ -97,7 +98,7 @@ class _SinkProgressBar:
 def _make_progress(total: int, description: str, unit: str = 'it', **kwargs):
     """有 sink 时返回替身对象，否则返回原 tqdm 对象（CLI 行为不变）。"""
     if _progress_sink is not None:
-        return _SinkProgressBar(total, description, unit)
+        return _SinkProgressBar(total, description, unit, position=kwargs.get('position', 0))
     from tqdm import tqdm as tqdm_func
     tqdm_kwargs = get_tqdm_kwargs(total, description, kwargs.get('verbose', True), unit, kwargs.get('position', 0))
     if kwargs.get('hide_counter'):
@@ -174,7 +175,7 @@ def show_value_file_save_progress(file_path: Path, save_completed: threading.Eve
     """
     # 进度汇模式：只发一次阶段事件，跳过tqdm动画
     if _progress_sink is not None:
-        _progress_sink(0, 1, description, '')
+        _progress_sink(0, 1, description, '', position)
         save_completed.set()
         return
 
@@ -390,7 +391,7 @@ def no_value_file_save_progress(file_path: Path, save_completed: threading.Event
     """
     # 进度汇模式：只发一次阶段事件，跳过动画线程
     if _progress_sink is not None:
-        _progress_sink(0, 1, description, '')
+        _progress_sink(0, 1, description, '', position)
         save_completed.set()
         return
 

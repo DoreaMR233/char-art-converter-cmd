@@ -9,8 +9,9 @@
 """
 from __future__ import annotations
 
+import threading
 import time
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QObject, Signal
 
@@ -48,13 +49,14 @@ def phase_title(description: str) -> str:
 class ProgressBridge(QObject):
     """持有内核 sink 回调，节流后转发为 Qt 信号。"""
 
-    progress = Signal(int, int, str, str)   # done, total, description, extra
+    progress = Signal(int, int, str, str, int)   # done, total, description, extra, position
 
     def __init__(self, parent=None, throttle_ms: int = THROTTLE_MS):
         super().__init__(parent)
         self._throttle_ms = max(10, int(throttle_ms))
-        self._pending: Optional[Tuple[int, int, str, str]] = None
+        self._pending: Dict[int, Tuple[int, int, str, str]] = {}
         self._last_emit = 0.0
+        self._lock = threading.Lock()
         self.attached = False
 
     def attach(self) -> None:
@@ -68,23 +70,27 @@ class ProgressBridge(QObject):
         if self.attached:
             set_progress_sink(None)
             self.attached = False
-        self._pending = None
+        with self._lock:
+            self._pending = {}
 
-    def _on_event(self, done: int, total: int, description: str, extra: str) -> None:
-        """内核 sink 回调（worker 线程）：合并为最新事件，≥50ms 才发出。"""
-        self._pending = (int(done), int(total), str(description), str(extra))
-        now = time.monotonic()
-        if now - self._last_emit >= self._throttle_ms / 1000.0:
-            self._flush_locked()
+    def _on_event(self, done: int, total: int, description: str, extra: str, position: int) -> None:
+        """内核 sink 回调（worker 线程）：每个 position 保留最新事件，≥50ms 批量发出。"""
+        with self._lock:
+            self._pending[int(position)] = (int(done), int(total), str(description), str(extra))
+            now = time.monotonic()
+            if now - self._last_emit >= self._throttle_ms / 1000.0:
+                self._flush_locked()
 
     def flush(self) -> None:
         """主线程在任务结束/取消时调用，补发未发出的尾部事件。"""
-        self._flush_locked()
+        with self._lock:
+            self._flush_locked()
 
     def _flush_locked(self) -> None:
-        if self._pending is None:
+        if not self._pending:
             return
-        done, total, description, extra = self._pending
-        self._pending = None
+        pending = sorted(self._pending.items())
+        self._pending = {}
         self._last_emit = time.monotonic()
-        self.progress.emit(done, total, description, extra)
+        for position, (done, total, description, extra) in pending:
+            self.progress.emit(done, total, description, extra, position)

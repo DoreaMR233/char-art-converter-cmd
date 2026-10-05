@@ -342,6 +342,17 @@ QProgressBar::chunk {{
     background-color: {progress_chunk};
     border-radius: 4px;
 }}
+QProgressBar#threadBar {{
+    background-color: {progress_track};
+    border: none;
+    border-radius: 3px;
+    min-height: 6px;
+    max-height: 6px;
+}}
+QProgressBar#threadBar::chunk {{
+    background-color: {progress_chunk};
+    border-radius: 3px;
+}}
 QPlainTextEdit#logView {{
     background-color: {log_background};
     color: {log_text};

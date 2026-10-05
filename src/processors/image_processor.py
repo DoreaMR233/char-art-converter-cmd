@@ -285,8 +285,11 @@ class ImageProcessor(BasedProcessor):
                     logger.info("使用顺序处理")
                     durations = super().process_frames_sequentially(frame_count,"处理帧",process_frame_func)
                 
-                if self.should_stop:
+                if self._stop_requested():
                     raise KeyboardInterrupt(ERROR_MESSAGES['processing_interrupted'])
+
+                if not self.temp_frame_paths:
+                    raise ValueError(ERROR_MESSAGES['no_frames_processed'])
 
                 # 检测是否可以一次性将所有帧加载到内存
                 def can_load_all_frames_to_memory() -> bool:
@@ -300,7 +303,7 @@ class ImageProcessor(BasedProcessor):
                         available_memory = psutil.virtual_memory().available
                         
                         # 估算每帧内存占用（简化估算：假设每帧占用约1MB）
-                        estimated_frame_size_mb = self.temp_frame_paths[1].stat().st_size / (1024 * 1024)
+                        estimated_frame_size_mb = self.temp_frame_paths[min(self.temp_frame_paths.keys())].stat().st_size / (1024 * 1024)
                         estimated_total_memory_mb = frame_count * estimated_frame_size_mb
                         estimated_total_memory_bytes = estimated_total_memory_mb * 1024 * 1024
                         
@@ -326,7 +329,7 @@ class ImageProcessor(BasedProcessor):
                               should_stop=self.should_stop_callback)
                 else:
                     logger.info("使用FFMPEG生成动图")
-                    with Image.open(self.temp_frame_paths[1]) as temp_image:
+                    with Image.open(self.temp_frame_paths[min(self.temp_frame_paths.keys())]) as temp_image:
                         logger.info(f"字符画图像尺寸: {temp_image.width}x{temp_image.height}")
                     frame_paths = [] # 从字典值中按照顺序提取路径列表
                     for tmp_frame_index in sorted(self.temp_frame_paths.keys()):

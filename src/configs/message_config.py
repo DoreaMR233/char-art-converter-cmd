@@ -53,6 +53,7 @@ ERROR_MESSAGES: Dict[str, str] = {
     'video_processing_failed': '视频处理失败: {}',             # 视频处理失败错误
     'image_processing_failed': '图像处理失败: {}',             # 图像处理失败的错误
     'animated_image_processing_failed': '动图处理失败: {}',  # 动图处理失败的错误
+    'no_frames_processed': '没有生成任何字符画帧，无法合成输出',  # 零帧时无法合成输出的错误
 }
 
 # 成功消息模板

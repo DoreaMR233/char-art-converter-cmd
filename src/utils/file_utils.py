@@ -28,17 +28,16 @@ import logging
 import shutil
 import tempfile
 import threading
-import time
 from pathlib import Path
 from typing import Optional, Tuple, Union, Callable, Any
 import puremagic
 
 
-from .progress_bar_utils import no_value_file_save_progress
+from .progress_bar_utils import get_progress_sink, no_value_file_save_progress
 from .save_uitls import save_char_art_text, save_static_char_art_image, save_animated_char_art_image, \
     save_file_by_ffmpeg
 from .multi_processing_utils import run_with_interrupt_support
-from ..configs import ERROR_MESSAGES, PNG_EXTENSIONS, APNG_EXTENSIONS
+from ..configs import ERROR_MESSAGES, PNG_EXTENSIONS, APNG_EXTENSIONS, GIF_EXTENSIONS
 from ..enums import SaveModes, ColorModes, FileType
 
 logger = logging.getLogger(__name__)
@@ -250,18 +249,15 @@ def save_file(content: dict[str,Any], file_path: Path,
             process_thread = threading.Thread(target=no_value_file_save_progress,
                                               args=(file_path, completed_event, description, True, position, should_stop_check))
             process_thread.start()
-            # 使用多进程保存文本文件，支持中断和异常传递
-            run_with_interrupt_support(
-                save_char_art_text,
-                should_stop=should_stop_check,
+            # 文本写入本身极快，直接在当前进程完成，避免多进程框架的固定开销
+            save_char_art_text(
                 text=output_text,
                 file_path=file_path,
                 frame_index=content.get("index", None)
             )
             completed_event.set()
-            while process_thread.is_alive():
-                time.sleep(0.1)
-                pass
+            # 保存已完成，进度线程会立即结束，直接阻塞等待即可
+            process_thread.join()
             if content.get("index") is None:
                 logger.info(f"文本已保存: {file_path}")
             else:
@@ -277,19 +273,23 @@ def save_file(content: dict[str,Any], file_path: Path,
             if should_stop_check():
                 raise KeyboardInterrupt(ERROR_MESSAGES['save_operation_interrupted'])
             file_ext = get_file_extension(file_path)
-            # 使用多进程保存静态图像，支持中断和异常传递
-            run_with_interrupt_support(
-                save_static_char_art_image,
-                should_stop=should_stop_check,
+            # 临时帧只是给后续视频/动图编码读取的中间产物，无需为体积做额外的编码优化
+            is_temp_frame = save_mode in (SaveModes.ANIMATED_IMAGE_TMP_FRAME, SaveModes.VIDEO_TMP_FRAME)
+            # 但 GIF 帧是调色板图像，optimize 会改变写入文件中的调色板顺序，而动图合成会重新读入这些帧
+            # （based_processor 里 Image.open(frame_path)），因此 GIF 帧必须保留 optimize 才能保证产物字节不变
+            keep_frame_optimize = is_temp_frame and file_ext in GIF_EXTENSIONS
+            # 单帧图像编码很快，直接在当前进程完成，避免多进程框架的固定开销
+            save_static_char_art_image(
                 image=output_image,
                 file_path=file_path,
                 file_ext=file_ext,
-                frame_index=content.get("index", None)
+                frame_index=content.get("index", None),
+                optimize=(not is_temp_frame) or keep_frame_optimize,
+                compress_level=1 if is_temp_frame else None
             )
             completed_event.set()
-            while process_thread.is_alive():
-                time.sleep(0.1)
-                pass
+            # 保存已完成，进度线程会立即结束，直接阻塞等待即可
+            process_thread.join()
             if content.get("index") is None:
                 logger.info(f"图像已保存: {file_path}")
             else:
@@ -321,9 +321,8 @@ def save_file(content: dict[str,Any], file_path: Path,
                 file_ext=file_ext
             )
             completed_event.set()
-            while process_thread.is_alive():
-                time.sleep(0.1)
-                pass
+            # 保存已完成，进度线程会立即结束，直接阻塞等待即可
+            process_thread.join()
             logger.info(f"图像已保存: {file_path}")
         elif save_mode == SaveModes.AUDIO or save_mode == SaveModes.MERGE_ANIMATE or save_mode == SaveModes.VIDEO:
             # 使用到FFMPEG的操作（保存音频/将图像帧合成为动画图像/保存视频）
@@ -333,14 +332,24 @@ def save_file(content: dict[str,Any], file_path: Path,
             cmd = content.get('cmd')
             log_path = content.get('log_path')
 
-            # 使用多进程保存FFmpeg处理的文件，支持中断和异常传递
-            run_with_interrupt_support(
-                save_file_by_ffmpeg,
-                should_stop=should_stop_check,
-                cmd=cmd,
-                log_path=log_path,
-                save_mode=save_mode
-            )
+            if get_progress_sink() is not None:
+                # GUI模式：进度汇回调只能在本进程触发，FFmpeg在本地同步执行以便上报进度
+                save_file_by_ffmpeg(
+                    cmd=cmd,
+                    log_path=log_path,
+                    save_mode=save_mode,
+                    description=description,
+                    should_stop=should_stop_check
+                )
+            else:
+                # 使用多进程保存FFmpeg处理的文件，支持中断和异常传递
+                run_with_interrupt_support(
+                    save_file_by_ffmpeg,
+                    should_stop=should_stop_check,
+                    cmd=cmd,
+                    log_path=log_path,
+                    save_mode=save_mode
+                )
 
             if save_mode == SaveModes.AUDIO:
                 logger.info(f"音频已提取: {file_path}")

@@ -19,7 +19,8 @@
 - torch: 用于GPU加速（可选）
 """
 import logging
-from typing import List, Optional, Any, Tuple, Union, Callable
+import threading
+from typing import Dict, List, Optional, Any, Tuple, Union, Callable
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -447,6 +448,217 @@ def create_char_image(resized_image: Image.Image, use_gpu: bool, char_set: str, 
 
     return output_image,char_line
 
+# ---------------------------------------------------------------------------
+# 字形位图缓存快速绘制
+#
+# draw.text() 每调用一次都会重新栅格化字形（PIL 内部每次新建一块字形掩码内存），
+# 逐像素绘制字符画时这一项占了绘制开销的绝大部分。这里把同一字体下每个字符的字形
+# 掩码缓存起来，之后直接复用 PIL 内部完全相同的 draw_bitmap 绘制路径，像素输出与
+# draw.text() 逐字节一致（首次构建时会用两种路径各画一遍做逐字节校验）。
+# 如果运行环境不支持该路径（非 FreeType 字体、非 "L" fontmode、PIL 内部接口变化等），
+# 自动回退到原来的 draw.text()。
+# ---------------------------------------------------------------------------
+
+_GLYPH_CACHE_ATTR = '_char_art_glyph_masks'
+_GLYPH_CACHE_LOCK = threading.Lock()
+_GLYPH_CACHE_UNSUPPORTED = False
+
+
+def _verify_glyph_masks(masks: Dict[str, Tuple[Any, Tuple[int, int]]], font: Any) -> bool:
+    """
+    用 draw.text() 与缓存字形各绘制一遍同样的字符与颜色，逐字节比对两张图像。
+
+    Args:
+        masks: Dict[str, Tuple[Any, Tuple[int, int]]] 字符到 (字形掩码, 偏移) 的映射
+        font: Any 字体对象
+
+    Returns:
+        bool: 两种绘制路径输出完全一致返回True
+    """
+    try:
+        probe_width = 16 * len(masks) + 16
+        probe_text = Image.new('RGB', (probe_width, 48), 'white')
+        probe_cached = Image.new('RGB', (probe_width, 48), 'white')
+        draw_text = ImageDraw.Draw(probe_text)
+        draw_cached = ImageDraw.Draw(probe_cached)
+        draw_bitmap = draw_cached.draw.draw_bitmap
+        get_ink = draw_cached._getink  # type: ignore[attr-defined]
+        for index, char in enumerate(masks):
+            position = (8 + index * 16, 8)
+            mask, offset = masks[char]
+            for fill in ((13, 200, 47), 'black'):
+                draw_text.text(position, char, font=font, fill=fill)
+                ink, fill_ink = get_ink(fill)
+                if ink is None:
+                    ink = fill_ink
+                draw_bitmap([position[0] + offset[0], position[1] + offset[1]], mask, ink)
+        return probe_text.tobytes() == probe_cached.tobytes()
+    except Exception as e:
+        logger.debug(f"字形位图一致性校验失败，回退到 draw.text(): {e}")
+        return False
+
+
+def _build_glyph_masks(draw: Any, font: Any, char_set: str) -> Optional[Dict[str, Tuple[Any, Tuple[int, int]]]]:
+    """
+    栅格化字符集中每个字符的字形掩码，并通过一致性校验。
+
+    Args:
+        draw: Any ImageDraw对象，用于确定字形的渲染模式
+        font: Any 字体对象
+        char_set: str 字符集
+
+    Returns:
+        Optional[Dict[str, Tuple[Any, Tuple[int, int]]]] 字符到 (掩码, 偏移) 的映射，不可用时返回None
+    """
+    mode = getattr(draw, 'fontmode', None)
+    getmask2 = getattr(font, 'getmask2', None)
+    if mode != 'L' or getmask2 is None:
+        return None
+    masks: Dict[str, Tuple[Any, Tuple[int, int]]] = {}
+    try:
+        for char in dict.fromkeys(char_set):
+            mask, offset = getmask2(char, mode, direction=None, features=None, language=None,
+                                    stroke_width=0, stroke_filled=True, anchor='la',
+                                    ink=0, start=(0.0, 0.0))
+            masks[char] = (mask, offset)
+    except Exception as e:
+        logger.debug(f"字形位图缓存构建失败，回退到 draw.text(): {e}")
+        return None
+    if not masks or not _verify_glyph_masks(masks, font):
+        return None
+    return masks
+
+
+def _get_glyph_masks(draw: Any, font: Any, char_set: str) -> Optional[Dict[str, Tuple[Any, Tuple[int, int]]]]:
+    """
+    获取字形掩码表，构建结果缓存到字体对象上以便跨帧复用。
+
+    Args:
+        draw: Any ImageDraw对象
+        font: Any 字体对象
+        char_set: str 字符集
+
+    Returns:
+        Optional[Dict[str, Tuple[Any, Tuple[int, int]]]] 字形掩码表，不可用时返回None
+    """
+    cached = getattr(font, _GLYPH_CACHE_ATTR, None)
+    if cached is not None:
+        return cached or None
+    with _GLYPH_CACHE_LOCK:
+        cached = getattr(font, _GLYPH_CACHE_ATTR, None)
+        if cached is None:
+            cached = _build_glyph_masks(draw, font, char_set) or _GLYPH_CACHE_UNSUPPORTED
+            try:
+                setattr(font, _GLYPH_CACHE_ATTR, cached)
+            except (AttributeError, TypeError):
+                pass
+        return cached or None
+
+
+def _is_blank_mask(mask: Any) -> bool:
+    """
+    判断字形掩码是否没有任何可见笔画（例如空格）。
+
+    Args:
+        mask: Any 字形掩码图像
+
+    Returns:
+        bool: 掩码全为0（绘制与不绘制等价）返回True
+    """
+    try:
+        return mask is not None and mask.getbbox() is None
+    except Exception:
+        return False
+
+
+def _is_rgb_table(data: Any) -> bool:
+    """
+    判断颜色数据是否为逐像素的RGB表（与原循环中的 len(shape) >= 3 判断一致）。
+
+    Args:
+        data: Any numpy数组或None
+
+    Returns:
+        bool: 是三维及以上的逐像素颜色表返回True
+    """
+    return data is not None and len(getattr(data, 'shape', ())) >= 3
+
+
+class GlyphPainter:
+    """
+    复用缓存字形掩码的绘制器。
+
+    可以像函数一样调用：painter(char, x, y, fill) 与 draw.text((x, y), char, font=font, fill=fill) 输出一致。
+    批量绘制循环还可以直接取用内部结构以避免逐像素的函数调用开销：
+
+    - glyphs: 字符到 (掩码, 偏移) 的映射；掩码为None表示该字符没有可见笔画，无需绘制；
+      查不到字符（未缓存）时值为None，调用方应回退到 draw.text。
+    - ink(fill): 返回颜色对应的C层绘制值，相同颜色只计算一次（纯函数，结果缓存）。
+    - fallback_text / draw_bitmap: 供回退绘制与字形绘制使用。
+    """
+
+    __slots__ = ('glyphs', 'draw_bitmap', 'fallback_text', 'font', '_get_ink', '_ink_cache')
+
+    def __init__(self, draw: Any, font: Any, glyphs: Dict[str, Tuple[Any, Tuple[int, int]]],
+                 draw_bitmap: Any = None, get_ink: Any = None) -> None:
+        self.glyphs = glyphs
+        self.draw_bitmap = draw_bitmap
+        self.fallback_text = draw.text
+        self.font = font
+        self._get_ink = get_ink
+        self._ink_cache: Dict[Any, Any] = {}
+
+    def ink(self, fill: Any) -> Any:
+        """把颜色（字符串或元组）转换为C层绘制值，相同颜色只计算一次。"""
+        cache = self._ink_cache
+        try:
+            return cache[fill]
+        except KeyError:
+            pass
+        get_ink = self._get_ink
+        if get_ink is None:
+            value = fill
+        else:
+            ink_value, fill_value = get_ink(fill)
+            value = ink_value if ink_value is not None else fill_value
+        cache[fill] = value
+        return value
+
+    def __call__(self, char: str, x: int, y: int, fill: Any) -> None:
+        glyph = self.glyphs.get(char)
+        if glyph is None:
+            self.fallback_text((x, y), char, font=self.font, fill=fill)
+            return
+        mask, offset = glyph
+        if mask is not None:
+            self.draw_bitmap([x + offset[0], y + offset[1]], mask, self.ink(fill))
+
+
+def make_glyph_painter(draw: Any, font: Any, char_set: str) -> Optional[GlyphPainter]:
+    """
+    构造单字符绘制函数 painter(char, x, y, fill)。
+
+    其行为与 draw.text((x, y), char, font=font, fill=fill) 完全一致，但复用了缓存的字形掩码。
+
+    Args:
+        draw: Any ImageDraw对象
+        font: Any 字体对象
+        char_set: str 字符集
+
+    Returns:
+        Optional[GlyphPainter] 绘制器，当前环境不支持时返回None（调用方回退到draw.text）
+    """
+    if not hasattr(draw, '_getink') or not hasattr(getattr(draw, 'draw', None), 'draw_bitmap'):
+        return None
+    masks = _get_glyph_masks(draw, font, char_set)
+    if not masks:
+        return None
+    glyphs: Dict[str, Tuple[Any, Tuple[int, int]]] = {}
+    for char, (mask, offset) in masks.items():
+        glyphs[char] = (None if _is_blank_mask(mask) else mask, offset)
+    return GlyphPainter(draw, font, glyphs, draw.draw.draw_bitmap, draw._getink)  # type: ignore[attr-defined]
+
+
 def process_image_gpu(resized_frame: Image.Image, draw: Any, char_lines: List[str], width: int, height: int,
                       char_width: int, char_height: int, torch: Any, device: Any,
                       char_set: str, char_count: int, color_mode: ColorModes, font: Any,
@@ -479,8 +691,10 @@ def process_image_gpu(resized_frame: Image.Image, draw: Any, char_lines: List[st
 
     # 根据是否有帧编号使用不同的描述文本
     image_desc = f"帧 {frame_index}" if frame_index is not None  else "静态图像"
-    # 预创建字符映射字典
-    char_index_to_char = {i: char for i, char in enumerate(char_set)}
+    # 预创建字符索引表与字形绘制函数
+    chars = tuple(char_set)
+    painter = make_glyph_painter(draw, font, char_set) or GlyphPainter(draw, font, {})
+    debug_enabled = logger.isEnabledFor(logging.DEBUG)
 
     # 计算总处理量，用于进度条
     total_pixels = width * height
@@ -567,8 +781,8 @@ def process_image_gpu(resized_frame: Image.Image, draw: Any, char_lines: List[st
                 raise KeyboardInterrupt(ERROR_MESSAGES['processing_interrupted'])
             # 3. 准备用于CPU绘制的数据（只传输必要数据）
             pbar.set_description(f"{image_desc} GPU生成 [准备CPU数据]")
-            # 将字符索引传输到CPU
-            char_indices = char_indices_gpu.cpu().numpy()
+            # 将字符索引传输到CPU（转为嵌套列表，逐像素索引比numpy标量索引快得多）
+            char_indices = char_indices_gpu.cpu().numpy().tolist()
 
             # 定义需要在后面使用的变量
             color_data = None
@@ -591,70 +805,71 @@ def process_image_gpu(resized_frame: Image.Image, draw: Any, char_lines: List[st
             pbar.update(1)
             # 4. 处理单个像素
             pbar.set_description(f"{image_desc} GPU生成 [处理单个像素]")
-            # 使用numpy向量化操作预处理坐标
-            x_coords = np.arange(width)
-            y_coords = np.arange(height)
-
-            # 创建网格以避免在循环中计算
-            xx, yy = np.meshgrid(x_coords, y_coords)
-            char_xs = (xx * char_width).astype(int)
-            char_ys = (yy * char_height).astype(int)
-
-            # 批量绘制字符
+            # 颜色表按行展开为Python列表，循环内只做列表索引；字形与颜色在循环外取好
+            color_rows = color_data.tolist() if _is_rgb_table(color_data) else None
+            bg_rows = bg_colors.tolist() if _is_rgb_table(bg_colors) else None
+            glyphs = painter.glyphs
+            make_ink = painter.ink
+            draw_bitmap = painter.draw_bitmap
+            draw_text = painter.fallback_text
+            draw_rectangle = draw.rectangle
+            ink_black = make_ink('black')
+            ink_white = make_ink('white')
+            # 逐行逐像素绘制字符
             for y_idx in range(height):
-                line = ""
+                # 检查是否应该停止
+                if should_stop and should_stop():
+                    raise KeyboardInterrupt(ERROR_MESSAGES['processing_interrupted'])
+                row_indices = char_indices[y_idx]
+                row_chars = tuple(map(chars.__getitem__, row_indices[:width]))
+                char_y = y_idx * char_height
+                # 按颜色模式准备本行的矩形填充色、回退绘制色与字形ink
+                row_bg_colors = None
+                row_colors = None
+                text_default: Union[str, Tuple[int, int, int]] = 'white'  # 设置默认值，确保变量始终被初始化
+                if color_mode == ColorModes.GRAYSCALE:
+                    text_default = 'black'
+                    row_inks = [ink_black] * width
+                elif color_mode == ColorModes.COLOR_BACKGROUND and bg_rows is not None:
+                    # 确保颜色值为整数
+                    row_bg_colors = [tuple(bg_pixel) for bg_pixel in bg_rows[y_idx][:width]]
+                    # 确定文本颜色
+                    row_colors = [get_contrast_color(bg[0], bg[1], bg[2]) for bg in row_bg_colors]
+                    row_inks = list(map(make_ink, row_colors))
+                elif color_mode == ColorModes.COLOR and color_rows is not None:
+                    # 确保颜色值为整数
+                    row_colors = [tuple(pixel_color) for pixel_color in color_rows[y_idx][:width]]
+                    row_inks = list(map(make_ink, row_colors))
+                else:
+                    row_inks = [ink_white] * width
                 for x_idx in range(width):
-                    # 检查是否应该停止
-                    if should_stop and should_stop():
-                        raise KeyboardInterrupt(ERROR_MESSAGES['processing_interrupted'])
-                    # 获取字符 - 使用预创建的字典
-                    char_idx = int(char_indices[y_idx, x_idx])
-                    char = char_index_to_char[char_idx]  # 优化: 使用预创建的字典
-                    line += char
-                    logger.debug(f"{image_desc}-({x_idx},{y_idx}): 生成字符")
-                    # 获取预计算的坐标
-                    char_x = char_xs[y_idx, x_idx]
-                    char_y = char_ys[y_idx, x_idx]
-
-                    # 根据颜色模式设置颜色
-                    text_color: Union[str, Tuple[int, int, int]] = 'white'  # 设置默认值，确保变量始终被初始化
-
-                    if color_mode == ColorModes.GRAYSCALE:
-                        text_color = 'black'
-                    elif color_mode == ColorModes.COLOR:
-                        # 直接检查变量而不是使用locals()
-                        if color_data is not None and len(color_data.shape) >= 3:
-                            # 确保颜色值为整数
-                            r = int(color_data[y_idx, x_idx, 0])
-                            g = int(color_data[y_idx, x_idx, 1])
-                            b = int(color_data[y_idx, x_idx, 2])
-                            text_color = (r, g, b)
-                        else:
-                            text_color = 'white'
-                    elif color_mode == ColorModes.COLOR_BACKGROUND:
-                        # 直接检查变量而不是使用locals()
-                        if bg_colors is not None and len(bg_colors.shape) >= 3:
-                            # 确保颜色值为整数
-                            bg_r = int(bg_colors[y_idx, x_idx, 0])
-                            bg_g = int(bg_colors[y_idx, x_idx, 1])
-                            bg_b = int(bg_colors[y_idx, x_idx, 2])
-                            bg_color = (bg_r, bg_g, bg_b)
-                            # 绘制背景
-                            draw.rectangle(
-                                [char_x, char_y, char_x + int(char_width), char_y + int(char_height)],
-                                fill=bg_color
-                            )
-                            # 确定文本颜色
-                            text_color = get_contrast_color(bg_r, bg_g, bg_b)
-
+                    # 获取字符 - 使用预创建的字符索引表
+                    char = row_chars[x_idx]
+                    if debug_enabled:
+                        logger.debug(f"{image_desc}-({x_idx},{y_idx}): 生成字符")
+                    # 计算字符坐标
+                    char_x = x_idx * char_width
+                    # 绘制背景
+                    if row_bg_colors is not None:
+                        draw_rectangle(
+                            [char_x, char_y, char_x + int(char_width), char_y + int(char_height)],
+                            fill=row_bg_colors[x_idx]
+                        )
                     # 绘制字符
-                    draw.text((char_x, char_y), char, font=font, fill=text_color)
-                    logger.debug(f"{image_desc}-({x_idx},{y_idx}): 绘制字符")
+                    glyph = glyphs.get(char)
+                    if glyph is None:
+                        draw_text((char_x, char_y), char, font=font,
+                                  fill=text_default if row_colors is None else row_colors[x_idx])
+                    else:
+                        mask, offset = glyph
+                        if mask is not None:
+                            draw_bitmap([char_x + offset[0], char_y + offset[1]], mask, row_inks[x_idx])
+                    if debug_enabled:
+                        logger.debug(f"{image_desc}-({x_idx},{y_idx}): 绘制字符")
                     
-                    # 更新进度条
-                    pbar.update(1)
-
-                char_lines.append(line)
+                char_lines.append(''.join(row_chars))
+                # 更新进度条（按行累计，总数与原逐像素更新一致）
+                pbar.update(width)
             # 更新进度条
             pbar.update(1)
             # 更新进度条状态为完成
@@ -699,23 +914,36 @@ def process_image_cpu(resized_image: Image.Image, draw: Any, char_lines: List[st
 
     total_pixels = width * height
 
+    # 预创建字形绘制函数
+    painter = make_glyph_painter(draw, font, char_set) or GlyphPainter(draw, font, {})
+    debug_enabled = logger.isEnabledFor(logging.DEBUG)
+    glyphs = painter.glyphs
+    make_ink = painter.ink
+    draw_bitmap = painter.draw_bitmap
+    draw_text = painter.fallback_text
+    draw_rectangle = draw.rectangle
+    ink_black = make_ink('black')
+    ink_white = make_ink('white')
+
     # 创建进度条
     with show_project_status_progress(total=total_pixels, description=f"{image_desc} CPU生成",
                                        position=position) as pbar:
+        pixels = resized_image.load()
         for y in range(height):
             # 检查是否应该停止
             if should_stop and should_stop():
                 raise KeyboardInterrupt(ERROR_MESSAGES['processing_interrupted'])
             line = ""
+            char_y = y * char_height
             for x in range(width):
-                pixel = resized_image.getpixel((x, y))
+                pixel = pixels[x, y]
                 # 将像素转换为字符
                 char = pixel_to_char(pixel,char_set,char_count)
                 line += char
-                logger.debug(f"{image_desc}-({x},{y}): 生成字符")
+                if debug_enabled:
+                    logger.debug(f"{image_desc}-({x},{y}): 生成字符")
                 # 计算字符位置
                 char_x = x * char_width
-                char_y = y * char_height
 
                 # 根据颜色模式设置颜色
                 text_color: Union[str, Tuple[int, int, int]] = 'white'  # 设置默认值，确保变量始终被初始化
@@ -728,24 +956,27 @@ def process_image_cpu(resized_image: Image.Image, draw: Any, char_lines: List[st
                         text_color = 'white'
                 elif color_mode == ColorModes.COLOR_BACKGROUND:  # colorBackground
                     if isinstance(pixel, tuple) and len(pixel) >= 3:
-                        bg_color = pixel
+                        # 绘制背景
+                        draw_rectangle(
+                            [char_x, char_y, char_x + char_width, char_y + char_height],
+                            fill=pixel
+                        )
                         text_color = get_contrast_color(pixel[0], pixel[1], pixel[2])
-
-                        # 绘制背景（如果提供了绘图对象）
-                        if draw is not None:
-                            draw.rectangle(
-                                [char_x, char_y, char_x + char_width, char_y + char_height],
-                                fill=bg_color
-                            )
                     else:
                         text_color =  'white'
 
                 # 绘制字符
-                draw.text((char_x, char_y), char, font=font, fill=text_color)
-                logger.debug(f"{image_desc}-({x},{y}): 绘制字符")
+                glyph = glyphs.get(char)
+                if glyph is None:
+                    draw_text((char_x, char_y), char, font=font, fill=text_color)
+                else:
+                    mask, offset = glyph
+                    if mask is not None:
+                        draw_bitmap([char_x + offset[0], char_y + offset[1]], mask, make_ink(text_color))
+                if debug_enabled:
+                    logger.debug(f"{image_desc}-({x},{y}): 绘制字符")
                 
-                # 更新进度条
-                pbar.update(1)
-
             char_lines.append(line)
+            # 更新进度条（按行累计，总数与原逐像素更新一致）
+            pbar.update(width)
 

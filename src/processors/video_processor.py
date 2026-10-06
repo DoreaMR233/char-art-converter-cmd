@@ -301,7 +301,10 @@ class VideoProcessor(BasedProcessor):
                 assert fps is not None, ASSERT_MESSAGES['fps_not_none']
                 duration = int(1000 / fps) if fps > 0 else int(DEFAULT_FPS)
                 # 设置保存模式和临时帧路径
-                save_mode = SaveModes.VIDEO_TMP_FRAME
+                # 帧会被保留（-i 指定了图像保存路径，或 --debug 不清理临时文件夹）时必须按普通静态图保存，
+                # 与清理条件保持一致；只有真正会被删除的中间帧才使用快速编码
+                save_mode = SaveModes.STATIC_IMAGE if (self.with_image or self.is_debug) \
+                    else SaveModes.VIDEO_TMP_FRAME
                 input_ext = DEFAULT_FRAME_EXTENSIONS
                 # 确保text_path和temp_image_dir不为None
                 assert self.text_path is not None, ASSERT_MESSAGES['text_path_not_none']

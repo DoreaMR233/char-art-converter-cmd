@@ -186,18 +186,12 @@ def run_with_interrupt_support(func: Callable, should_stop: Optional[Callable[[]
             except Exception as e:
                 logger.error(f"终止子进程时出错: {str(e)}")
         
-        # 显式等待以确保操作系统完全释放文件句柄
-        time.sleep(0.5)  # 短暂休眠以确保文件句柄释放
-        
         # 关闭队列
         try:
             result_queue.close()
             result_queue.join_thread()
         except Exception as e:
             logger.error(f"关闭队列时出错: {str(e)}")
-        
-        # 再次等待一小段时间，确保所有资源都已释放
-        time.sleep(0.2)  # 额外的短暂等待
         
         # 所有资源清理完成后，再抛出异常
         if exception_to_raise is not None:

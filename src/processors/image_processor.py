@@ -267,7 +267,10 @@ class ImageProcessor(BasedProcessor):
                     # 获取帧持续时间
                     duration = image.info.get('duration', 0)
                     # 设置保存模式和临时帧路径
-                    save_mode = SaveModes.ANIMATED_IMAGE_TMP_FRAME
+                    # 帧会被保留（-i 指定了帧保存路径，或 --debug 不清理临时文件夹）时必须按普通静态图保存，
+                    # 与清理条件保持一致；只有真正会被删除的中间帧才使用快速编码
+                    save_mode = SaveModes.STATIC_IMAGE if (self.with_image or self.is_debug) \
+                        else SaveModes.ANIMATED_IMAGE_TMP_FRAME
                     input_ext = get_file_extension(self.input_path)
                     
                     # 确保路径不为None

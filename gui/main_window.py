@@ -258,6 +258,7 @@ class MainWindow(QMainWindow):
         self.stage_label.setText(PREWARM_DESCRIPTION)
         self.progress_bar.setRange(0, 0)
         self._clear_thread_bars()
+        self._thread_phase = False
         self.status_label.setText("正在准备转换任务…")
         self.open_folder_btn.setVisible(False)
         self.input_error.setVisible(False)
@@ -283,9 +284,13 @@ class MainWindow(QMainWindow):
         if self.param_panel.values()["debug"]:
             self.log_drawer.expand(True)
 
+    # 帧处理阶段（CLI 中由各线程进度条表示）独占线程条
+    _THREAD_BAR_PHASE = ("处理视频帧", "处理帧")
+
     def _on_progress(self, done: int, total: int, description: str, extra: str, position: int = 0) -> None:
         if position > 0:
             # 线程条（position 1..N）：与 CLI 每线程一条对齐，tooltip 显示当前活动
+            self._thread_phase = True
             index = position - 1
             if 0 <= index < len(self._thread_bars):
                 bar = self._thread_bars[index]
@@ -303,6 +308,13 @@ class MainWindow(QMainWindow):
             self.progress_bar.setRange(0, total)
             self.progress_bar.setValue(min(done, total))
         title = phase_title(description)
+        if self._thread_phase and title not in self._THREAD_BAR_PHASE:
+            # 帧处理阶段已结束（进入音频提取/合成/保存）：收起不再更新的线程条
+            self._clear_thread_bars()
+            self._thread_phase = False
+        if self.status_label.text() == "正在准备转换任务…" and not (description or "").startswith("正在初始化"):
+            # 首个真实工作事件：准备阶段结束
+            self.status_label.setText("正在转换…")
         self.stage_label.setText(f"{title} {extra}".strip() if extra else title)
 
     def _on_thread_count(self, count: int) -> None:

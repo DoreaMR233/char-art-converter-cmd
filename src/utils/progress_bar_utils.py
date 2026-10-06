@@ -391,7 +391,9 @@ def no_value_file_save_progress(file_path: Path, save_completed: threading.Event
     """
     # 进度汇模式：只发一次阶段事件，跳过动画线程
     if _progress_sink is not None:
-        _progress_sink(0, 1, description, '', position)
+        # 该进度条是动画式的（没有可量化百分比），total 上报 0 表示“不确定进度”：
+        # 与 CLI 的滚动动画语义一致，GUI 渲染为忙碌态，而不是停在 0% 的假进度
+        _progress_sink(0, 0, description, '', position)
         save_completed.set()
         return
 
@@ -421,7 +423,6 @@ def no_value_file_save_progress(file_path: Path, save_completed: threading.Event
             'bar_format': '{desc}',
             'disable': False
         })
-        time.sleep(1)
         # 创建自定义的tqdm进度条，使用统一配置
         with tqdm(**tqdm_kwargs) as pbar:
             # 持续更新进度条直到保存完成
@@ -451,8 +452,8 @@ def no_value_file_save_progress(file_path: Path, save_completed: threading.Event
                     direction *= -1
                     animation_pos = max(0, min(animation_width - block_width, animation_pos))
                 
-                # 控制更新频率
-                time.sleep(0.1)
+                # 控制更新频率（等待完成事件而不是固定延迟）
+                save_completed.wait(0.1)
             
             # 保存完成，获取最终文件大小
             final_size = 0
@@ -481,8 +482,6 @@ def no_value_file_save_progress(file_path: Path, save_completed: threading.Event
             # 设置进度为100%并刷新
             pbar.n = 1
             pbar.refresh()
-            # 等待1秒，确保进度条显示完整
-            time.sleep(1)
     
     except (OSError, IOError, KeyboardInterrupt) as e:
         # 捕获常见异常，包括键盘中断

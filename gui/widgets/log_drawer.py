@@ -72,6 +72,9 @@ class LogDrawer(QWidget):
         content_layout = QVBoxLayout(self._content)
         content_layout.setContentsMargins(0, 8, 0, 0)
         content_layout.addWidget(self.text_edit)
+        # 展开高度设上下限：日志再长也不挤压上方配置区
+        self.text_edit.setMinimumHeight(110)
+        self._content.setMaximumHeight(280)
         self._content.setVisible(False)
 
         layout = QVBoxLayout(self)

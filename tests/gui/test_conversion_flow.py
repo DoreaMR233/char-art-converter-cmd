@@ -14,12 +14,11 @@ import pytest
 from gui.main_window import AppState
 
 
-def test_image_conversion_success(window, sample_image, qt_wait, wait_preview_idle):
+def test_image_conversion_success(window, sample_image, qt_wait):
     """T-305：图片转换成功 → SUCCESS、状态文案、产物 txt 落盘、打开按钮可见。"""
     window.file_picker.set_path(str(sample_image))
     window.param_panel.with_text_check.setChecked(True)
     window.param_panel.enable_gpu_check.setChecked(False)
-    assert wait_preview_idle(window), "预览线程未在超时前结束"
     window._on_start()
 
     assert window._state is AppState.RUNNING
@@ -38,13 +37,12 @@ def test_image_conversion_success(window, sample_image, qt_wait, wait_preview_id
     assert (out_dir / "test_input_color_char_art.txt").is_file()
 
 
-def test_progress_events_during_conversion(window, sample_image, qt_wait, wait_preview_idle):
+def test_progress_events_during_conversion(window, sample_image, qt_wait):
     """T-306：转换期间 bridge 持续收到进度事件（含预热不确定进度与确定进度）。"""
     events = []
     window.bridge.progress.connect(lambda *args: events.append(args))
     window.file_picker.set_path(str(sample_image))
     window.param_panel.enable_gpu_check.setChecked(False)
-    assert wait_preview_idle(window), "预览线程未在超时前结束"
     window._on_start()
 
     assert qt_wait(lambda: window._state is AppState.SUCCESS, timeout=600), \
@@ -59,7 +57,7 @@ def test_progress_events_during_conversion(window, sample_image, qt_wait, wait_p
     os.environ.get("QT_QPA_PLATFORM") == "offscreen",
     reason="已知问题：offscreen 下 GUI 视频 worker 挂起（>15min 无输出，Lead 批准跳过，交由 leader 复核）",
 )
-def test_video_conversion_success(window, sample_video, qt_wait, ffmpeg_available, wait_preview_idle):
+def test_video_conversion_success(window, sample_video, qt_wait, ffmpeg_available):
     """T-307：视频转换成功（无 ffmpeg 按文档策略 skip；缩小尺寸加速用例）。"""
     if not ffmpeg_available:
         pytest.skip("本机无 ffmpeg，视频用例按文档策略跳过")
@@ -68,7 +66,6 @@ def test_video_conversion_success(window, sample_video, qt_wait, ffmpeg_availabl
     window.param_panel.enable_gpu_check.setChecked(False)
     window.param_panel.width_spin.setValue(48)
     window.param_panel.height_spin.setValue(24)
-    assert wait_preview_idle(window), "预览线程未在超时前结束"
     window._on_start()
 
     assert qt_wait(lambda: window._state is AppState.SUCCESS, timeout=900), \

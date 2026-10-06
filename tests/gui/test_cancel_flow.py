@@ -18,14 +18,13 @@ from gui.main_window import AppState
     os.environ.get("QT_QPA_PLATFORM") == "offscreen",
     reason="已知问题：offscreen 下 GUI 视频 worker 挂起（Lead 批准跳过，交由 leader 复核）",
 )
-def test_cancel_video_conversion(window, sample_video, qt_wait, ffmpeg_available, wait_preview_idle):
+def test_cancel_video_conversion(window, sample_video, qt_wait, ffmpeg_available):
     """T-308：视频转换中取消 → CANCELING→IDLE、产物清理、日志出现“清理”。"""
     if not ffmpeg_available:
         pytest.skip("本机无 ffmpeg，视频用例按文档策略跳过")
     window.file_picker.set_path(str(sample_video))
     window.param_panel.with_text_check.setChecked(True)
     window.param_panel.enable_gpu_check.setChecked(False)
-    assert wait_preview_idle(window), "预览线程未在超时前结束"
     window._on_start()
 
     assert qt_wait(lambda: window.progress_bar.maximum() > 0, timeout=300), \
@@ -53,13 +52,12 @@ def test_cancel_video_conversion(window, sample_video, qt_wait, ffmpeg_available
     os.environ.get("QT_QPA_PLATFORM") == "offscreen",
     reason="已知问题：offscreen 下 GUI 视频 worker 挂起（Lead 批准跳过，交由 leader 复核）",
 )
-def test_restart_after_cancel(window, sample_video, sample_image, qt_wait, ffmpeg_available, wait_preview_idle):
+def test_restart_after_cancel(window, sample_video, sample_image, qt_wait, ffmpeg_available):
     """T-309：取消完成后可再次开始并成功转换。"""
     if not ffmpeg_available:
         pytest.skip("本机无 ffmpeg，视频用例按文档策略跳过")
     window.file_picker.set_path(str(sample_video))
     window.param_panel.enable_gpu_check.setChecked(False)
-    assert wait_preview_idle(window), "预览线程未在超时前结束"
     window._on_start()
     assert qt_wait(lambda: window.progress_bar.maximum() > 0, timeout=300)
     window._on_cancel()
@@ -67,7 +65,6 @@ def test_restart_after_cancel(window, sample_video, sample_image, qt_wait, ffmpe
     assert window.start_btn.isEnabled()
 
     window.file_picker.set_path(str(sample_image))
-    assert wait_preview_idle(window), "预览线程未在超时前结束"
     window._on_start()
     assert qt_wait(lambda: window._state is AppState.SUCCESS, timeout=600), \
         f"取消后重开转换失败，状态={window._state}，文案={window.status_label.text()}"

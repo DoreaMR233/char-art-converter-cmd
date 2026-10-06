@@ -209,8 +209,6 @@ def window(qapp):
     win = MainWindow()
     win.show()
     yield win
-    from PySide6.QtWidgets import QApplication
-
     worker = getattr(win, "_worker", None)
     if worker is not None and getattr(worker, "isRunning", lambda: False)():
         if hasattr(worker, "cancel"):
@@ -218,21 +216,6 @@ def window(qapp):
         wait = getattr(worker, "wait", None)
         if callable(wait):
             wait(10000)
-    # 预览线程：轮询 isRunning 而非 QThread.wait()。
-    # PySide6 6.11.2 + CPython 3.12 Windows 下，主线程对"刚结束/正在结束"的
-    # QThread 调 wait() 实测触发 "Fatal Python error: Aborted"（整个 pytest 进程崩溃）。
-    preview = getattr(win.preview_pane, "_worker", None)
-    if preview is not None:
-        deadline = time.monotonic() + 30
-        while preview.isRunning() and time.monotonic() < deadline:
-            QApplication.processEvents()
-            time.sleep(0.05)
-        if preview.isRunning():
-            preview.terminate()
-            deadline = time.monotonic() + 5
-            while preview.isRunning() and time.monotonic() < deadline:
-                QApplication.processEvents()
-                time.sleep(0.05)
     win.log_drawer.unmount()
     win.bridge.detach()
     win.close()

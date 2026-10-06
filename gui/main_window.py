@@ -7,11 +7,13 @@ import subprocess
 from argparse import Namespace
 from enum import Enum, auto
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
+from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QMainWindow, QProgressBar, QPushButton, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QMainWindow, QProgressBar, QPushButton, QScrollArea,
+    QVBoxLayout, QWidget,
 )
 
 from src.configs.message_config import ERROR_MESSAGES
@@ -20,10 +22,32 @@ from gui.progress_bridge import ProgressBridge, phase_title
 from gui.widgets.file_picker import FilePicker
 from gui.widgets.log_drawer import LogDrawer
 from gui.widgets.param_panel import ParamPanel, SIZE_MODE_CUSTOM
-from gui.widgets.preview_pane import PreviewPane
 from gui.worker import ConversionWorker, PREWARM_DESCRIPTION
 
 logger = logging.getLogger(__name__)
+
+
+def read_original_size(path: str) -> Optional[Tuple[int, int]]:
+    """读取输入文件的原始尺寸：图片读头部，视频取首帧；失败返回 None。"""
+    try:
+        with Image.open(path) as opened:
+            return int(opened.width), int(opened.height)
+    except Exception:
+        pass
+    try:
+        import cv2
+
+        cap = cv2.VideoCapture(str(path))
+        try:
+            ok, frame = cap.read()
+            if not ok:
+                return None
+            return int(frame.shape[1]), int(frame.shape[0])
+        finally:
+            cap.release()
+    except Exception as e:
+        logger.warning("读取输入尺寸失败: %s", e)
+        return None
 
 
 class AppState(Enum):
@@ -36,7 +60,11 @@ class AppState(Enum):
 
 
 class MainWindow(QMainWindow):
-    """960×640（最小 800×560），8px 间距网格。"""
+    """960×640（最小 800×560），8px 间距网格。
+
+    配置区放在滚动视口内：窗口变矮、线程条出现或日志抽屉展开时改为滚动，
+    配置区块不会被压缩、遮挡或错位。
+    """
 
     def __init__(self):
         super().__init__()
@@ -58,22 +86,23 @@ class MainWindow(QMainWindow):
         self.input_error.setVisible(False)
 
         self.param_panel = ParamPanel()
-        self.preview_pane = PreviewPane()
-        self.preview_pane.size_ready.connect(self.param_panel.set_original_size)
 
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(16, 16, 8, 16)
-        left_layout.setSpacing(8)
-        left_layout.addWidget(self.file_picker)
-        left_layout.addWidget(self.input_error)
-        left_layout.addWidget(self.param_panel, 1)
+        config = QWidget()
+        config_layout = QVBoxLayout(config)
+        config_layout.setContentsMargins(16, 16, 16, 8)
+        config_layout.setSpacing(8)
+        config_layout.addWidget(self.file_picker)
+        config_layout.addWidget(self.input_error)
+        config_layout.addWidget(self.param_panel)
+        config_layout.addStretch(1)
 
-        right = QWidget()
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(8, 16, 16, 16)
-        right_layout.setSpacing(8)
-        right_layout.addWidget(self.preview_pane, 1)
+        self.config_scroll = QScrollArea()
+        self.config_scroll.setObjectName("configScroll")
+        self.config_scroll.setWidgetResizable(True)
+        self.config_scroll.setMinimumHeight(300)   # 配置区优先：空间不足时先压日志抽屉
+        self.config_scroll.setFrameShape(QFrame.NoFrame)
+        self.config_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.config_scroll.setWidget(config)
 
         self.stage_label = QLabel("就绪")
         self.stage_label.setObjectName("stageLabel")
@@ -89,8 +118,10 @@ class MainWindow(QMainWindow):
         self.thread_bars_layout.setContentsMargins(0, 0, 0, 0)
         self.thread_bars_layout.setSpacing(2)
         self.thread_bars_container.setVisible(False)
+        self.thread_bars_container.setMaximumHeight(180)   # 上限：线程条再多也不挤压配置区
         self._thread_bars: List[QProgressBar] = []
         self._thread_count = 0
+        self._thread_phase = False
 
         self.status_label = QLabel("")
         self.status_label.setObjectName("statusLabel")
@@ -115,8 +146,8 @@ class MainWindow(QMainWindow):
 
         self.log_drawer = LogDrawer()
 
-        bottom = QWidget()
-        bottom_layout = QVBoxLayout(bottom)
+        self.bottom = QWidget()
+        bottom_layout = QVBoxLayout(self.bottom)
         bottom_layout.setContentsMargins(16, 0, 16, 8)
         bottom_layout.setSpacing(8)
         progress_row = QHBoxLayout()
@@ -139,12 +170,8 @@ class MainWindow(QMainWindow):
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(0, 0, 0, 0)
         central_layout.setSpacing(0)
-        body = QHBoxLayout()
-        body.setSpacing(0)
-        body.addWidget(left, 1)
-        body.addWidget(right, 1)
-        central_layout.addLayout(body, 1)
-        central_layout.addWidget(bottom)
+        central_layout.addWidget(self.config_scroll, 1)
+        central_layout.addWidget(self.bottom)
         self.setCentralWidget(central)
 
         self.file_picker.pathChanged.connect(self._on_path_changed)
@@ -155,17 +182,15 @@ class MainWindow(QMainWindow):
 
     def _on_path_changed(self, path: str) -> None:
         self.input_error.setVisible(False)
-        if path:
-            self.preview_pane.set_input(path, self.param_panel.values()["density"])
-        else:
-            self.preview_pane.clear()
+        size = read_original_size(path) if path else None
+        if size is None:
             self.param_panel.clear_original_size()
+        else:
+            self.param_panel.set_original_size(*size)
 
     def _on_params_changed(self) -> None:
         if self._state in (AppState.IDLE, AppState.SUCCESS, AppState.ERROR):
             self._set_state(AppState.IDLE)
-        if self.file_picker.path():
-            self.preview_pane.set_density(self.param_panel.values()["density"])
 
     # ---------- 状态机 ----------
 
@@ -392,5 +417,4 @@ class MainWindow(QMainWindow):
             return
         self.log_drawer.unmount()
         self.bridge.detach()
-        self.preview_pane.shutdown()
         super().closeEvent(event)

@@ -240,7 +240,7 @@ class MainWindow(QMainWindow):
             if bool(width) != bool(height):
                 self.param_panel.size_hint.setProperty("invalid", True)
                 self.param_panel.size_hint.setText(
-                    "自定义尺寸需同时填写宽和高（或都留空），已忽略本次请求")
+                    "自定义尺寸需同时填写宽和高（字符网格列数 / 行数；都留空则按默认大小），已忽略本次请求")
                 self.param_panel.size_hint.style().unpolish(self.param_panel.size_hint)
                 self.param_panel.size_hint.style().polish(self.param_panel.size_hint)
                 return False

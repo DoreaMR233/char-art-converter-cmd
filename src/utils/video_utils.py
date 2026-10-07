@@ -7,6 +7,7 @@
 - 视频格式检测：支持多种视频格式的自动检测，采用多层级检测机制确保准确性
 - 帧序列转视频：将字符画帧列表转换为无声视频文件
 - 视频音频合成：将音频文件添加到视频中，创建完整的有声视频
+- 硬件解码友好编码：按输出容器自动选择硬件解码器可解码的编码器、像素格式和编码档次
 
 依赖：
 - cv2 (OpenCV)：用于视频帧处理和格式验证
@@ -21,6 +22,8 @@
 - detect_video_type：检测视频文件类型，返回标准扩展名
 - create_video_from_frames：从PIL图像帧列表创建无声视频
 - add_audio_to_video：将音频添加到视频文件中
+- get_hw_decode_encode_config：按输出容器获取硬件解码友好的编码器与编码档次
+- get_hw_decode_video_args：构建硬件解码友好的视频编码参数
 """
 import json
 import logging
@@ -33,8 +36,10 @@ import jsonpath  # type: ignore
 
 from .file_utils import save_file
 from ..configs import DEFAULT_FPS, DEFAULT_VIDEO_CODEC, DEFAULT_BITRATE, DEFAULT_AUDIO_CODEC, DEFAULT_BIT_RATE_STRING, \
-    DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS
-from ..configs.message_config import ERROR_MESSAGES
+    DEFAULT_SAMPLE_RATE, DEFAULT_CHANNELS, EXTENSION_TO_CODEC, HW_DECODE_PIX_FMT, HW_DECODE_EVEN_SIZE_FILTER, \
+    HW_DECODE_DEFAULT_PROFILE, HW_DECODE_FASTSTART_EXTENSIONS, HW_DECODE_VP9_SPEED_ARGS, \
+    HW_DECODE_UNSUPPORTED_EXTENSIONS, HW_DECODE_PROFILE_BY_EXTENSION
+from ..configs.message_config import ERROR_MESSAGES, WARNING_MESSAGES
 from ..enums.save_modes import SaveModes
 
 # 配置日志
@@ -84,12 +89,77 @@ def get_video_info(file_path: Path | str, show_format: bool = True, show_streams
     return json.dumps(probe_result, indent=2, ensure_ascii=False)
 
 
+def get_hw_decode_encode_config(output_path: Path) -> tuple[str, Optional[str]]:
+    """
+    获取硬件解码友好的视频编码配置
+
+    根据输出容器的扩展名，选择主流硬件解码器（NVDEC/DXVA2/D3D11VA/QuickSync/VAAPI 等）
+    能够解码的视频编码器及其编码档次。扩展名没有对应编码时使用默认编码器。
+
+    Args:
+        output_path: Path 输出视频文件路径，其扩展名决定输出容器格式
+
+    Returns:
+        tuple[str, Optional[str]]: 视频编码器名称与编码档次，编码档次为 None 表示该编码器不指定档次
+
+    Raises:
+        None
+    """
+    suffix = output_path.suffix.lower()
+    encoder = EXTENSION_TO_CODEC.get(suffix, DEFAULT_VIDEO_CODEC)
+    profile = HW_DECODE_PROFILE_BY_EXTENSION.get(suffix, HW_DECODE_DEFAULT_PROFILE)
+    return encoder, profile
+
+
+def get_hw_decode_video_args(output_path: Path, encoder: Optional[str] = None) -> list[str]:
+    """
+    构建硬件解码友好的视频编码参数
+
+    硬件解码器只支持主流编码格式的 8bit 4:2:0 色度采样码流，并且要求宽高为偶数，
+    因此这里统一附带 `-pix_fmt yuv420p`、`-profile:v` 以及宽高取偶数的缩放滤镜。
+
+    Args:
+        output_path: Path 输出视频文件路径，其扩展名决定输出容器格式
+        encoder: Optional[str] 指定的视频编码器，为 None 时按输出容器自动选择
+
+    Returns:
+        list[str]: ffmpeg 输出参数列表（-c:v、-pix_fmt、-profile:v、-vf 等）
+
+    Raises:
+        None
+    """
+    suffix = output_path.suffix.lower()
+    default_encoder, default_profile = get_hw_decode_encode_config(output_path)
+    if encoder is None:
+        encoder, profile = default_encoder, default_profile
+    else:
+        # 显式指定编码器时，仅当它与该容器的默认编码器一致才套用编码档次，
+        # 否则档次可能不被该编码器支持（如 mpeg4 不支持 high 档次而直接报错）
+        profile = default_profile if encoder == default_encoder else None
+
+    args = ['-c:v', encoder, '-pix_fmt', HW_DECODE_PIX_FMT]
+    if profile is not None:
+        args.extend(['-profile:v', str(profile)])
+    # libvpx-vp9 默认编码速度极慢，放宽速度参数以便实际可用
+    if encoder == 'libvpx-vp9':
+        args.extend(HW_DECODE_VP9_SPEED_ARGS)
+    # 宽高取偶数，否则 yuv420p 无法编码（如 321x241 会直接报错）
+    args.extend(['-vf', HW_DECODE_EVEN_SIZE_FILTER])
+    # mp4/mov 需要 moov 前置才能边下边播
+    if suffix in HW_DECODE_FASTSTART_EXTENSIONS:
+        args.extend(['-movflags', '+faststart'])
+    return args
+
+
 def create_video(frames_paths: list[Path], audio_path: Optional[Path], output_path: Path, temp_dir: Path, video_info: str, fps: float = DEFAULT_FPS,
-                 codec: Optional[str] = DEFAULT_VIDEO_CODEC, bitrate: int = DEFAULT_BITRATE, threads_num: int = 1,
+                 codec: Optional[str] = None, bitrate: int = DEFAULT_BITRATE, threads_num: int = 1,
                  should_stop: Optional[Callable[[], bool]] = None) -> None:
     """
     从帧序列创建视频文件
-    
+
+    输出视频统一采用硬件解码友好的编码参数（编码器按输出容器选择、8bit 4:2:0 像素格式、
+    主流编码档次、偶数宽高），以保证生成的视频可以被硬件解码器解码。
+
     Args:
         frames_paths: list[Path] 帧文件路径列表
         audio_path: Optional[Path] 音频文件路径，可选
@@ -97,14 +167,14 @@ def create_video(frames_paths: list[Path], audio_path: Optional[Path], output_pa
         temp_dir: Path 临时目录路径
         video_info: str 视频信息的JSON字符串
         fps: float 帧率，默认使用配置中的默认值
-        codec: Optional[str] 视频编码器，默认使用配置中的默认值
+        codec: Optional[str] 视频编码器，为 None 时按输出容器自动选择硬件解码友好的编码器
         bitrate: int 视频比特率，默认使用配置中的默认值
         threads_num: int 使用的线程数，默认1
         should_stop: Optional[Callable[[], bool]] 检查是否应该停止处理的回调函数，可选
-    
+
     返回:
         None
-    
+
     Raises:
         FileNotFoundError: 当输入文件不存在时
         Exception: 当视频创建失败时
@@ -139,6 +209,13 @@ def create_video(frames_paths: list[Path], audio_path: Optional[Path], output_pa
             for frame_file in frames_paths:
                 f.write(f"file '{str(frame_file.absolute())}'\nduration {durations[frames_paths.index(frame_file)]}\n")
             filelist_path = f.name
+        # 硬件解码友好的编码参数：编码器按输出容器选择，并约束像素格式/编码档次/宽高
+        hw_args = get_hw_decode_video_args(output_path, encoder=codec)
+        output_suffix = output_path.suffix.lower()
+        if output_suffix in HW_DECODE_UNSUPPORTED_EXTENSIONS:
+            logger.warning(WARNING_MESSAGES['hw_decode_unsupported_container'].format(
+                output_suffix, hw_args[hw_args.index('-c:v') + 1]))
+        logger.info(f"视频编码参数: {' '.join(hw_args)}")
         # 构建ffmpeg命令参数
         cmd = [
             'ffmpeg',
@@ -147,8 +224,10 @@ def create_video(frames_paths: list[Path], audio_path: Optional[Path], output_pa
             '-r', str(fps),
             '-threads', str(threads_num),
             '-i', filelist_path,
-            '-c:v', codec,
         ]
+        # 音频参数：必须先声明所有输入（-i），再统一追加输出参数，
+        # 否则输出参数会被当作第二个输入文件的输入选项而报错
+        audio_args = []
         if audio_path and  audio_path.exists():
             logger.debug(f"音频文件存在: {audio_path}")
             audio_info = jsonpath.jsonpath(video_info_json, "$.streams[?(@.codec_type == \"audio\")]")[0]
@@ -159,12 +238,15 @@ def create_video(frames_paths: list[Path], audio_path: Optional[Path], output_pa
             logger.debug(f"音频编码器: {acodec}, 音频比特率: {audio_bit_rate}, 采样率: {sample_rate}, 声道数: {channels}")
             cmd.extend([
                 '-i', str(audio_path),  # 输入音频文件
-            '-b:a', str(audio_bit_rate),
-            '-ar', str(sample_rate),
-            '-ac', str(channels),
-            '-c:a', acodec,])
+            ])
+            audio_args = ['-b:a', str(audio_bit_rate),
+                          '-ar', str(sample_rate),
+                          '-ac', str(channels),
+                          '-c:a', acodec]
         else:
             logger.debug(f"音频文件不存在: {audio_path}")
+        cmd.extend(hw_args)
+        cmd.extend(audio_args)
         cmd.extend([
             '-r', str(fps),
             '-y',  # 覆盖现有文件

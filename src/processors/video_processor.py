@@ -38,13 +38,14 @@ from PIL import Image
 from .based_processor import BasedProcessor
 from ..configs import SUCCESS_MESSAGES, ERROR_MESSAGES
 from ..configs.message_config import ASSERT_MESSAGES
-from ..configs.video_config import DEFAULT_FPS, DEFAULT_FRAME_EXTENSIONS, DEFAULT_VIDEO_CODEC, DEFAULT_BITRATE
+from ..configs.video_config import DEFAULT_FPS, DEFAULT_FRAME_EXTENSIONS, DEFAULT_VIDEO_CODEC, DEFAULT_BITRATE, \
+    HW_DECODE_PIX_FMT
 from ..enums.file_type import FileType
 from ..enums.save_modes import SaveModes
 from ..utils import (
     get_output_path, create_temp_dir, format_time, cleanup_files,
     calculate_resized_dimensions, extract_audio,
-    show_project_status_progress, create_video
+    show_project_status_progress, create_video, get_hw_decode_encode_config
 )
 from ..utils import video_utils
 
@@ -259,7 +260,7 @@ class VideoProcessor(BasedProcessor):
             
             # 将OpenCV图像转换为PIL图像进行尺寸计算
             first_pil_image = Image.fromarray(cv2.cvtColor(first_frame, cv2.COLOR_BGR2RGB))
-            calculate_resized_dimensions(self.limit_size, first_pil_image, None, True)
+            calculate_resized_dimensions(self.limit_size, first_pil_image, None, True, self.font_size)
             
             # 重置视频读取位置到开始
             cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -348,8 +349,12 @@ class VideoProcessor(BasedProcessor):
             first_frame_index = min(self.temp_frame_paths.keys())
             with Image.open(self.temp_frame_paths[first_frame_index]) as temp_image:
                 logger.info(f"字符画图像尺寸: {temp_image.width}x{temp_image.height}")
+                # 输出视频按输出容器选择编码器，而不是复用输入视频的编码器，
+                # 并约束为硬件解码器支持的像素格式，保证生成的视频可以硬件解码
+                output_codec, output_profile = get_hw_decode_encode_config(self.video_path)
+                logger.info(f"输出视频编码: {output_codec} (编码档次: {output_profile}, 像素格式: {HW_DECODE_PIX_FMT})")
                 create_video(frame_paths, self.audio_path, self.video_path, self.temp_audio_dir, self.video_info, fps,
-                         codec_name, bit_rate, self.max_workers,should_stop=self.should_stop_callback)
+                         bitrate=bit_rate, threads_num=self.max_workers, should_stop=self.should_stop_callback)
 
 
                 

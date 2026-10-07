@@ -42,14 +42,17 @@ def calculate_resized_dimensions(limit_size: Optional[List[int]], image: Image.I
     同时保持图像的原始宽高比。
 
     Args:
-        limit_size: Optional[List[int]] 限制尺寸的列表 [width, height]，如果为None则不限制，空列表则使用默认限制
+        limit_size: Optional[List[int]] 限制尺寸的列表 [width, height]，即字符网格的列数与行数。
+            为 None 时不限制，按原图尺寸处理；空列表时使用默认限制（受 font_size 影响）；
+            超过原图尺寸时会被夹到原图尺寸并给出警告
         image: Image.Image 原始图像对象
         frame_index: Optional[int] 帧索引，用于日志记录（处理动画时使用）
         is_show: bool 是否显示日志信息
-        font_size: Optional[int] 字体大小，用于计算默认缩放比例，默认为12
+        font_size: Optional[int] 字体大小，用于计算默认限制（取 font_size // 2）；
+            为 None 时回退为宽度 ÷ 4、高度 ÷ 6（本函数签名默认值即 None）
 
     Returns:
-        Tuple[int, int]: 调整后的宽度和高度 (width, height)
+        Tuple[int, int]: 调整后的宽度和高度 (width, height)，即字符网格的列数与行数
 
     Raises:
         TypeError: 当输入参数类型不符合要求时抛出

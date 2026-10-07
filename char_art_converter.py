@@ -146,7 +146,9 @@ def create_parser() -> argparse.ArgumentParser:
         type=int,
         metavar='[LIMIT_WIDTH,LIMIT_HEIGHT]',
         default=DEFAULT_LIMIT_SIZE,
-        help='调整输入图片尺寸。不带参数时使用默认大小(若指定了字体大小则为其1/2，否则原图宽度的1/4和原图高度的1/6)，带两个参数时指定宽度和高度'
+        help='调整输入图片尺寸，限制的是字符网格的列数×行数。不指定该参数时不限制，按原图尺寸处理；'
+             '不带参数时使用默认大小（宽与高均为原图对应尺寸÷6，内置字体大小12）；'
+             '带两个参数时指定字符网格的宽度和高度（正整数，超过原图尺寸会被夹到原图尺寸）'
     )
 
     parser.add_argument(

@@ -14,7 +14,7 @@
 - 日志设置：日志配置、获取日志信息
 - 进度条显示：进度条配置和显示
 - 参数验证：输入文件、输出路径、参数有效性验证
-- 视频处理：视频类型检测、信息获取、创建视频
+- 视频处理：视频类型检测、信息获取、创建视频、硬件解码友好编码参数
 - FFmpeg工具：FFmpeg可用性检查
 - 音频处理：音频提取
 
@@ -93,7 +93,9 @@ from .validate_utils import (
 )
 from .video_utils import (
     get_video_info,
-    create_video
+    create_video,
+    get_hw_decode_encode_config,
+    get_hw_decode_video_args
 )
 from .ffmpeg_utils import (
     check_ffmpeg_available

@@ -2,18 +2,47 @@
 
 T-207 无 FFmpeg 时允许 skip；T-213 仅 Windows 且能投递 CTRL_BREAK_EVENT 时执行（slow）。
 """
+import json
 import os
 import queue
+import shutil
 import signal
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
 
 def _detail(res):
     return f"stdout:\n{res.stdout[-1500:]}\nstderr:\n{res.stderr[-1500:]}"
+
+
+def _ffprobe_video_stream(path: Path) -> dict:
+    """读取视频首条视频流信息；缺少 ffprobe 时跳过依赖该信息的断言。"""
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        pytest.skip("ffprobe 不可用，跳过视频编码参数断言")
+
+    res = subprocess.run(
+        [ffprobe, "-v", "quiet", "-print_format", "json", "-select_streams", "v:0", "-show_streams", str(path)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    assert res.returncode == 0, f"ffprobe 执行失败: {res.stderr[-500:]}"
+    streams = json.loads(res.stdout).get("streams") or []
+    assert streams, f"ffprobe 未解析到视频流: {path}"
+    return streams[0]
+
+
+def _assert_hw_decode_friendly(path: Path) -> None:
+    """硬解回归：产物必须是 H.264 + 8bit 4:2:0 + 偶数宽高，才能被硬件解码器解码。"""
+    stream = _ffprobe_video_stream(path)
+    assert stream["pix_fmt"] == "yuv420p", f"像素格式 {stream['pix_fmt']} 不是硬件解码所需的 yuv420p"
+    assert stream["codec_name"] == "h264", f"视频编码 {stream['codec_name']} 不支持硬件解码"
+    assert stream["width"] % 2 == 0 and stream["height"] % 2 == 0, (
+        f"宽高必须为偶数才能使用 yuv420p: {stream['width']}x{stream['height']}"
+    )
 
 
 def test_video_convert(run_cli, sample_video, ffmpeg_available):
@@ -28,6 +57,7 @@ def test_video_convert(run_cli, sample_video, ffmpeg_available):
     assert (out_dir / "test_input_color_char_art_text").is_dir(), "缺少逐帧文本目录"
     assert (out_dir / "test_input_color_char_art.avi").is_file(), "缺少视频产物"
     assert "统计视频帧数" in res.stdout
+    _assert_hw_decode_friendly(out_dir / "test_input_color_char_art.avi")
 
 
 @pytest.mark.slow

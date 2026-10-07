@@ -238,7 +238,7 @@ class ImageProcessor(BasedProcessor):
                 # 获取动图帧数
                 frame_count = getattr(image, 'n_frames', 1)
                 logger.info(f"帧数: {frame_count}")
-                calculate_resized_dimensions(self.limit_size, image, None, True)
+                calculate_resized_dimensions(self.limit_size, image, None, True, self.font_size)
                 input_stem = self.input_path.stem
 
 

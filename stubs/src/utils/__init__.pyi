@@ -10,4 +10,4 @@ from .image_utils import  is_animated_image as is_animated_image
 from .logging_utils import get_current_log_config as get_current_log_config, setup_logging as setup_logging
 from .progress_bar_utils import get_tqdm_kwargs as get_tqdm_kwargs, no_value_file_save_progress as no_value_file_save_progress, show_project_status_progress as show_project_status_progress, show_value_file_save_progress as show_value_file_save_progress
 from .validate_utils import validate_arguments as validate_arguments, validate_input_file as validate_input_file, validate_output_path as validate_output_path
-from .video_utils import  get_video_info as get_video_info,create_video as create_video
+from .video_utils import  get_video_info as get_video_info,create_video as create_video,get_hw_decode_encode_config as get_hw_decode_encode_config,get_hw_decode_video_args as get_hw_decode_video_args

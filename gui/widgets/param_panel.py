@@ -27,9 +27,9 @@ SIZE_MODE_ORIGINAL = "original"
 SIZE_MODE_DEFAULT = "default"
 SIZE_MODE_CUSTOM = "custom"
 SIZE_HINTS = {
-    SIZE_MODE_ORIGINAL: "不调整输入尺寸，按原图大小输出",
-    SIZE_MODE_DEFAULT: "默认大小：有字体大小时取其 1/2，否则原图宽 1/4 × 高 1/6",
-    SIZE_MODE_CUSTOM: "宽 × 高（像素），默认取原图尺寸；都留空时按默认大小处理",
+    SIZE_MODE_ORIGINAL: "不限制字符网格，按原图尺寸处理（等价于不传 -l）",
+    SIZE_MODE_DEFAULT: "默认大小：网格列数 = 原图宽 ÷ 6、行数 = 原图高 ÷ 6（内置字体大小 12）",
+    SIZE_MODE_CUSTOM: "字符网格列数 × 行数（选中时自动填入原图尺寸，即不缩放）；都留空时按默认大小处理",
 }
 
 

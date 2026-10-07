@@ -43,6 +43,30 @@ def test_limit_size_xor(window, sample_image):
     assert window.param_panel.size_hint.property("invalid") is True
 
 
+def test_limit_size_zero_rejected(window, sample_image):
+    """自定义尺寸 0×0 → 尺寸提示并拒绝（与 CLI 一致：宽高必须大于 0）。"""
+    window.file_picker.set_path(str(sample_image))
+    window.param_panel.size_custom_radio.setChecked(True)
+    window.param_panel.clear_original_size()
+    assert window.param_panel.width_spin.value() == 0
+    assert window.param_panel.height_spin.value() == 0
+
+    assert not window._validate_form()
+    hint = window.param_panel.size_hint.text()
+    assert "需同时填写宽和高" in hint
+    assert "0×0" in hint
+    assert window.param_panel.size_hint.property("invalid") is True
+
+
+def test_limit_size_zero_without_input_file(window):
+    """未选择输入文件 + 自定义尺寸 0×0 → 提交时给出尺寸错误提示。"""
+    assert window.param_panel.width_spin.text() == "0"
+    window.param_panel.size_custom_radio.setChecked(True)
+    assert not window._validate_form()
+    assert "需同时填写宽和高" in window.param_panel.size_hint.text()
+    assert window.param_panel.size_hint.property("invalid") is True
+
+
 def test_limit_size_restored_after_fix(window, sample_image):
     """自定义尺寸下补全宽高后提示复位、校验通过。"""
     window.file_picker.set_path(str(sample_image))

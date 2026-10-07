@@ -17,6 +17,7 @@
 - 视频处理：视频类型检测、信息获取、创建视频、硬件解码友好编码参数
 - FFmpeg工具：FFmpeg可用性检查
 - 音频处理：音频提取
+- 控制台中断：Windows 控制台控制处理器注册（CTRL_BREAK / CTRL_C 优雅中断）
 
 依赖：
 - char_art_utils: 字符艺术生成工具
@@ -32,6 +33,7 @@
 - video_utils: 视频处理工具
 - ffmpeg_utils: FFmpeg工具
 - audio_utils: 音频处理工具
+- console_utils: Windows 控制台中断处理工具
 """
 
 # 从各个子模块导入函数
@@ -102,4 +104,7 @@ from .ffmpeg_utils import (
 )
 from .audio_utils import (
     extract_audio
+)
+from .console_utils import (
+    install_console_interrupt_handler
 )

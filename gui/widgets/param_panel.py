@@ -29,15 +29,16 @@ SIZE_MODE_CUSTOM = "custom"
 SIZE_HINTS = {
     SIZE_MODE_ORIGINAL: "不限制字符网格，按原图尺寸处理（等价于不传 -l）",
     SIZE_MODE_DEFAULT: "默认大小：网格列数 = 原图宽 ÷ 6、行数 = 原图高 ÷ 6（内置字体大小 12）",
-    SIZE_MODE_CUSTOM: "字符网格列数 × 行数（选中时自动填入原图尺寸，即不缩放）；都留空时按默认大小处理",
+    SIZE_MODE_CUSTOM: "字符网格列数 × 行数（正整数，选中时自动填入原图尺寸）；"
+                      "未选择输入文件时显示 0×0，宽高必须都大于 0",
 }
 
 
 class _SelectAllLineEdit(QLineEdit):
     """点击/聚焦即全选，替代 QAbstractSpinBox 默认“折叠成光标”的行为。
 
-    同步实现（无 QTimer.singleShot 竞态）：用户在“自动”等占位文本上打字时，
-    第一个按键就替换全选内容，不会被逐个吞掉；步进前文本状态始终可预期。
+    同步实现（无 QTimer.singleShot 竞态）：用户输入时第一个按键就替换全选内容，
+    不会被逐个吞掉；步进前文本状态始终可预期。
     """
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
@@ -51,14 +52,17 @@ class _SelectAllLineEdit(QLineEdit):
 
 
 class ClearableSpinBox(QSpinBox):
-    """尺寸输入框：清空文本 = 0（显示“自动”）。"""
+    """尺寸输入框：范围 0–99999，清空文本 = 0，直接显示数字（无占位文字）。
+
+    0 即“未设置”：自定义尺寸模式下宽或高为 0 时提交会被校验拒绝。
+    """
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.setRange(0, 99999)
-        self.setSpecialValueText("自动")
         self.setKeyboardTracking(False)
         self.setLineEdit(_SelectAllLineEdit(self))
+        self.setSpecialValueText("")  # 无占位文案：0 直接显示为数字 0（须在替换 lineEdit 之后）
 
     def validate(self, text: str, pos: int):
         """空文本视为合法（含义同 0）。"""
@@ -218,12 +222,8 @@ class ParamPanel(QWidget):
         elif mode == SIZE_MODE_DEFAULT:
             limit_size = []
         else:
-            width = self.width_spin.value()
-            height = self.height_spin.value()
-            if width and height:
-                limit_size = [width, height]
-            else:
-                limit_size = []  # 只填一维视为无效，交由校验报错
+            # 自定义尺寸：原样交出宽高，0×0 或只填一维都由校验报错
+            limit_size = [self.width_spin.value(), self.height_spin.value()]
         if self.gpu_use_default_check.isChecked():
             gpu_memory_limit = None
         else:
@@ -281,8 +281,10 @@ class ParamPanel(QWidget):
         self._fill_custom_with_original()
 
     def clear_original_size(self) -> None:
-        """文件清空后丢弃旧原图尺寸，避免自定义模式误填旧值。"""
+        """文件清空/读取失败后丢弃旧原图尺寸，并把自定义尺寸宽高复位为 0×0。"""
         self._original_size = None
+        self.width_spin.setValue(0)
+        self.height_spin.setValue(0)
 
     def _fill_custom_with_original(self) -> None:
         if not self._original_size or not self.size_custom_radio.isChecked():

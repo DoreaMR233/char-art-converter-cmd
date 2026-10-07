@@ -1,6 +1,7 @@
 """主窗口：表单→Namespace 映射、五态状态机、进度显示与日志抽屉集成。"""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -16,8 +17,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from src.configs.message_config import ERROR_MESSAGES
+from src.configs.message_config import ERROR_MESSAGES, WARNING_MESSAGES
 from src.enums.file_type import FileType
+from src.utils.video_utils import get_video_info
 from gui.progress_bridge import ProgressBridge, phase_title
 from gui.widgets.file_picker import FilePicker
 from gui.widgets.log_drawer import LogDrawer
@@ -28,7 +30,17 @@ logger = logging.getLogger(__name__)
 
 
 def read_original_size(path: str) -> Optional[Tuple[int, int]]:
-    """读取输入文件的原始尺寸：图片读头部，视频取首帧；失败返回 None。"""
+    """读取输入文件的原始尺寸。
+
+    图片/动图读文件头，视频取首帧；两者都读不到时回退 ffprobe（覆盖 OpenCV
+    打不开的封装格式，保证自定义尺寸模式一定能填入原图尺寸）。
+
+    Args:
+        path: str 输入文件路径（图片或视频）。
+
+    Returns:
+        Optional[Tuple[int, int]]: (宽, 高) 原始尺寸；三种方式都读不到时为 None。
+    """
     try:
         with Image.open(path) as opened:
             return int(opened.width), int(opened.height)
@@ -40,14 +52,35 @@ def read_original_size(path: str) -> Optional[Tuple[int, int]]:
         cap = cv2.VideoCapture(str(path))
         try:
             ok, frame = cap.read()
-            if not ok:
-                return None
-            return int(frame.shape[1]), int(frame.shape[0])
+            if ok:
+                return int(frame.shape[1]), int(frame.shape[0])
         finally:
             cap.release()
+    except Exception:
+        pass
+    return _probe_original_size(path)
+
+
+def _probe_original_size(path: str) -> Optional[Tuple[int, int]]:
+    """用 ffprobe 读取首个视频流的宽高（PIL/OpenCV 都读不到时的兜底）。
+
+    Args:
+        path: str 输入文件路径。
+
+    Returns:
+        Optional[Tuple[int, int]]: (宽, 高)；ffprobe 不可用、文件无视频流或解析失败时为 None。
+    """
+    try:
+        probe = json.loads(get_video_info(path))
+        for stream in probe.get("streams", []):
+            if stream.get("codec_type") != "video":
+                continue
+            width, height = stream.get("width"), stream.get("height")
+            if width and height:
+                return int(width), int(height)
     except Exception as e:
-        logger.warning("读取输入尺寸失败: %s", e)
-        return None
+        logger.warning(WARNING_MESSAGES['read_input_size_failed'].format(e))
+    return None
 
 
 class AppState(Enum):
@@ -217,6 +250,19 @@ class MainWindow(QMainWindow):
     # ---------- 任务控制 ----------
 
     def _validate_form(self) -> bool:
+        if self.param_panel.size_mode == SIZE_MODE_CUSTOM:
+            width = self.param_panel.width_spin.value()
+            height = self.param_panel.height_spin.value()
+            if width <= 0 or height <= 0:
+                self.param_panel.size_hint.setProperty("invalid", True)
+                self.param_panel.size_hint.setText(
+                    "自定义尺寸需同时填写宽和高（字符网格列数 / 行数，且都必须大于 0）；"
+                    f"当前为 {width}×{height}，请填写尺寸或先选择输入文件，已忽略本次请求")
+                self.param_panel.size_hint.style().unpolish(self.param_panel.size_hint)
+                self.param_panel.size_hint.style().polish(self.param_panel.size_hint)
+                return False
+        self.param_panel.reset_size_hint()
+
         path = self.file_picker.path()
         if not path:
             self._show_input_error("请选择输入文件（图片或视频）")
@@ -233,18 +279,6 @@ class MainWindow(QMainWindow):
             self._show_input_error(
                 f"{ERROR_MESSAGES['unsupported_format'].format(Path(path).suffix)} 请选择图片或视频文件")
             return False
-
-        if self.param_panel.size_mode == SIZE_MODE_CUSTOM:
-            width = self.param_panel.width_spin.value()
-            height = self.param_panel.height_spin.value()
-            if bool(width) != bool(height):
-                self.param_panel.size_hint.setProperty("invalid", True)
-                self.param_panel.size_hint.setText(
-                    "自定义尺寸需同时填写宽和高（字符网格列数 / 行数；都留空则按默认大小），已忽略本次请求")
-                self.param_panel.size_hint.style().unpolish(self.param_panel.size_hint)
-                self.param_panel.size_hint.style().polish(self.param_panel.size_hint)
-                return False
-        self.param_panel.reset_size_hint()
 
         output = self.param_panel.values()["output"]
         self.param_panel.output_error.setVisible(False)

@@ -32,6 +32,7 @@ a = Analysis(
         'colorama',
         # System
         'psutil',
+        'ctypes',
         # Torch related
         'scipy',
         'sympy',

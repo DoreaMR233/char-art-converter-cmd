@@ -104,4 +104,6 @@ WARNING_MESSAGES: Dict[str, str] = {
     'memory_check_failed': '内存检测失败: {}',  # 内存检测失败
     'ffprobe_frame_count_mismatch': 'FFprobe 统计的视频帧数({})与OpenCV读取的帧数({})不一致，使用FFprobe统计的帧数',  # FFprobe统计的视频帧数与OpenCV读取的帧数不一致
     'hw_decode_unsupported_container': '输出容器 {} 没有可用的硬件解码编码格式，将使用 {} 编码，生成的视频可能不支持硬件解码',  # 输出容器不支持硬件解码
+    'read_input_size_failed': '读取输入文件原始尺寸失败: {}',  # 读取输入文件原始尺寸失败（GUI 自定义尺寸预填）
+    'console_ctrl_handler_register_failed': '注册 Windows 控制台中断处理器失败: {}',  # 控制台中断处理器注册失败
 }

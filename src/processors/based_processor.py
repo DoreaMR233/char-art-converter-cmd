@@ -8,6 +8,7 @@
 主要功能：
 - 统一的参数初始化和验证
 - 中断信号处理和优雅退出
+- Windows 控制台中断处理（CTRL_BREAK / CTRL_C → 优雅中断）
 - 多线程环境下的进度条位置管理
 - 单帧图像到字符画的转换
 - 支持多线程和顺序处理两种模式
@@ -48,7 +49,7 @@ from ..enums.color_modes import ColorModes
 from ..enums.file_type import FileType
 from ..utils import validate_arguments, load_font, init_pytorch_and_gpu, setup_gpu_memory_limit, format_time, \
     resize_image_for_chars, create_char_image, show_project_status_progress, \
-    format_speed, calculate_resized_dimensions, check_ffmpeg_available
+    format_speed, calculate_resized_dimensions, check_ffmpeg_available, install_console_interrupt_handler
 from ..utils.file_utils import save_file
 
 logger = logging.getLogger(__name__)
@@ -215,6 +216,13 @@ class BasedProcessor:
         self.torch_cuda_available: bool
         self.device: Optional[Any]
         self.torch, self.torch_cuda_available, self.device = init_pytorch_and_gpu()
+
+        # torch（连同其 MKL / Intel Fortran 运行时）已载入，此时注册控制台处理器才能抢占
+        # CTRL_BREAK；与 SIGINT 保持一致，仅主线程注册，避免子线程劫持整个进程的中断行为
+        if threading.current_thread() is threading.main_thread():
+            install_console_interrupt_handler()
+        else:
+            logger.debug("非主线程运行，跳过控制台中断处理器注册（由上层负责取消）")
         
         # GPU加速判断
         if not args.enable_gpu:

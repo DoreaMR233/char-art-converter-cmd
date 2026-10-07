@@ -1,6 +1,7 @@
 from .audio_utils import extract_audio as extract_audio
 from .char_art_utils import calculate_resized_dimensions as calculate_resized_dimensions, create_char_image as create_char_image, image_to_char_text as image_to_char_text, pixel_to_char as pixel_to_char, pixel_to_char_gpu as pixel_to_char_gpu, process_image_cpu as process_image_cpu, process_image_gpu as process_image_gpu, resize_image_for_chars as resize_image_for_chars
 from .color_utils import enhance_color as enhance_color, ensure_rgb_mode as ensure_rgb_mode, get_contrast_color as get_contrast_color, rgb_to_gray as rgb_to_gray
+from .console_utils import install_console_interrupt_handler as install_console_interrupt_handler
 from .ffmpeg_util import check_ffmpeg_available as check_ffmpeg_available
 from .file_utils import cleanup_files as cleanup_files, create_temp_dir as create_temp_dir, ensure_dir_exists as ensure_dir_exists, execute_save_operation as execute_save_operation, get_file_extension as get_file_extension, get_output_path as get_output_path, save_file as save_file, save_with_progress as save_with_progress
 from .font_util import FontManager as FontManager, calculate_char_size as calculate_char_size, load_font as load_font

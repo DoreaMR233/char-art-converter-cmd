@@ -33,6 +33,7 @@
 # 首先导入最基础的模块和设置信号处理
 import argparse
 import logging
+import os
 import signal
 import sys
 import threading
@@ -65,11 +66,14 @@ def global_signal_handler(signum: int, frame) -> None:
             该方法用于在2秒内未收到其他信号时，强制退出程序。
             主要用于处理程序在处理过程中收到中断信号后，确保程序能够及时退出。
             
+            注意：该方法由 threading.Timer 在子线程中调用，此时 sys.exit 抛出的
+            SystemExit 只会终结该子线程而无法终止进程，因此必须使用 os._exit。
+            
             Returns:
                 None
             """
             print("\n强制退出程序...", file=sys.stderr)
-            sys.exit(1)
+            os._exit(1)
         # 启动一个定时器，如果2秒后还没退出就强制退出
         timer = threading.Timer(2.0, force_exit)
         timer.daemon = True
@@ -148,7 +152,8 @@ def create_parser() -> argparse.ArgumentParser:
         default=DEFAULT_LIMIT_SIZE,
         help='调整输入图片尺寸，限制的是字符网格的列数×行数。不指定该参数时不限制，按原图尺寸处理；'
              '不带参数时使用默认大小（宽与高均为原图对应尺寸÷6，内置字体大小12）；'
-             '带两个参数时指定字符网格的宽度和高度（正整数，超过原图尺寸会被夹到原图尺寸）'
+             '带两个参数时指定字符网格的宽度和高度（正整数且必须大于 0，超过原图尺寸会被夹到原图尺寸；'
+             '0×0 或只给一个值会报错）'
     )
 
     parser.add_argument(

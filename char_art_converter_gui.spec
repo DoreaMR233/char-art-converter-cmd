@@ -12,7 +12,7 @@ a = Analysis(
         'fontTools', 'fontTools.ttLib', 'puremagic', 'jsonpath', 'jsonpath_ng',
         'ffmpeg_python', 'python_ffmpeg', 'tqdm', 'colorama', 'psutil',
         'scipy', 'sympy', 'networkx', 'jinja2', 'markupsafe',
-        'multiprocessing', 'concurrent.futures', 'threading', 'subprocess',
+        'multiprocessing', 'concurrent.futures', 'threading', 'subprocess', 'ctypes',
         'better_ffmpeg_progress', 'pillow_heif', 'ply', 'pyee', 'librt',
         'PySide6',
     ],

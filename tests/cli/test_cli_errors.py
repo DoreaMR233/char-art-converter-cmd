@@ -45,6 +45,7 @@ def test_unsupported_format(run_cli, tmp_path):
     [
         (["32"], "--limit-size"),
         (["0", "10"], "宽度和高度必须大于0"),
+        (["0", "0"], "宽度和高度必须大于0"),
     ],
 )
 def test_invalid_limit_size(run_cli, sample_image, limit_args, expected_fragment):

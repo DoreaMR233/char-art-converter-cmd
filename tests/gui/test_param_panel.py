@@ -72,3 +72,45 @@ def test_original_size_ignored_outside_custom_mode(window):
     assert panel.width_spin.value() == 0
     panel.size_default_radio.setChecked(True)
     assert panel.width_spin.value() == 0
+
+
+def test_custom_size_zero_display_and_mapping(window):
+    """未选文件时宽高显示 0×0（无占位文字）；0×0 / 单边 0 原样交给校验报错。"""
+    panel = window.param_panel
+    assert panel.width_spin.specialValueText() == ""
+    assert panel.height_spin.specialValueText() == ""
+    assert panel.width_spin.text() == "0"
+    assert panel.height_spin.text() == "0"
+
+    panel.size_custom_radio.setChecked(True)
+    assert panel.width_spin.text() == "0"
+    assert panel.height_spin.text() == "0"
+    assert panel.values()["limit_size"] == [0, 0]  # 0×0：提交时由校验提示错误
+
+    panel.width_spin.setValue(32)
+    assert panel.values()["limit_size"] == [32, 0]  # 只填一维同样交由校验报错
+
+    panel.height_spin.setValue(24)
+    assert panel.values()["limit_size"] == [32, 24]
+
+    panel.size_default_radio.setChecked(True)
+    panel.width_spin.setValue(0)
+    assert panel.width_spin.text() == "0"
+    assert panel.values()["limit_size"] == []  # 默认大小模式仍为 []
+
+
+def test_custom_mode_fill_and_clear_resets_to_zero(window):
+    """切到自定义尺寸（0×0）→ 选定文件自动填入原图尺寸 → 清空文件复位为 0×0。"""
+    panel = window.param_panel
+    panel.size_custom_radio.setChecked(True)
+    assert panel.values()["limit_size"] == [0, 0]
+
+    panel.set_original_size(64, 48)
+    assert panel.width_spin.value() == 64
+    assert panel.height_spin.value() == 48
+    assert panel.values()["limit_size"] == [64, 48]
+
+    panel.clear_original_size()
+    assert panel.width_spin.value() == 0
+    assert panel.height_spin.value() == 0
+    assert panel.values()["limit_size"] == [0, 0]
